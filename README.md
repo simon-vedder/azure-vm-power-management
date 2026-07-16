@@ -28,7 +28,7 @@ ignored.
 ```
 runbook/VM-PowerManagement.ps1   # the tag-driven runbook (PowerShell 7.2, Managed Identity)
 gui/PowerMate.ps1                # OPTIONAL end-user WPF GUI (source only) — see below
-arm/deploy.json                  # ALTERNATIVE: add the runbook + hourly schedule to an EXISTING Automation Account
+arm/deploy.json                  # ALTERNATIVE self-contained deploy — creates the Automation Account + identity + role
 terraform/
   main.tf         # automation account, hourly schedule, runbook, least-privilege role + assignment
   gui.tf          # OPTIONAL identity + role for the on-VM GUI — delete for runbook-only
@@ -49,10 +49,11 @@ Then tag a VM (`AutoShutdown = "8-18"`) and it's picked up on the next hourly ru
 `example-vm.tf` shows a correctly-tagged VM; if you keep it, supply `example_vm_admin_password` via a
 tfvars file or Key Vault (never commit it), or delete the file for a runbook-only deployment.
 
-**ARM alternative (`arm/deploy.json`):** if you already have an Automation Account with a permitted
-identity, this template just drops in the runbook + hourly schedule — no account/role provisioning.
-The Terraform above is the full stack (account + least-privilege identity + role); the ARM template is
-the lighter "add to existing" path.
+**ARM alternative (`arm/deploy.json`):** a self-contained template — it creates a dedicated Automation
+Account with a system-assigned identity, deploys the runbook + hourly schedule, and grants the identity
+the built-in **Desktop Virtualization Power On Off Contributor** role (start/stop/deallocate only). The
+difference from the Terraform above: the ARM path uses that built-in role, the Terraform uses a custom
+least-privilege role. Pick whichever fits your stack.
 
 ## Permissions
 
