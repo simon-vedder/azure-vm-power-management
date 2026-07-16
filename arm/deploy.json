@@ -18,7 +18,7 @@
     },
     "powerShellScriptUri": {
       "type": "string",
-      "defaultValue": "https://raw.githubusercontent.com/simon-vedder/powershell/refs/heads/main/scripts/utilities/VM-Powermanagement/VM-Powermanagement.ps1",
+      "defaultValue": "https://raw.githubusercontent.com/simon-vedder/azure-vm-power-management/refs/heads/main/runbook/VM-PowerManagement.ps1",
       "metadata": { "description": "URI to the PowerShell script file" }
     },
     "scheduleName": {
