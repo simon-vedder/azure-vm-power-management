@@ -1,4 +1,4 @@
-# azure-vm-power-management
+# Azure VM Power Management
 
 **Tag-driven start/stop for Azure VMs — schedule power by putting an `AutoShutdown` tag on the VM.**
 
