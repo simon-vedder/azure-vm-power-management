@@ -1,5 +1,11 @@
 # Azure VM Power Management
 
+![PowerShell](https://img.shields.io/badge/PowerShell-7.2-5391FE?logo=powershell&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
+![Azure Automation](https://img.shields.io/badge/Azure-Automation-0078D4?logo=microsoftazure&logoColor=white)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Last commit](https://img.shields.io/github/last-commit/simon-vedder/azure-vm-power-management)
+
 **Tag-driven start/stop for Azure VMs — schedule power by putting an `AutoShutdown` tag on the VM.**
 
 An Azure Automation runbook decides, per VM and per hour, whether to start or stop it — based
