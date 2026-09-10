@@ -198,6 +198,68 @@ Describe 'Resolve-VmPowerAction' {
     }
 }
 
+Describe 'Get-VmPowerPlan' {
+    # These exist because the first live run against an empty tenant produced one phantom machine
+    # called "(unnamed)". The rules were right; the plumbing between the graph call and the rules
+    # collapsed none, one and many into the wrong shape. Fixtures could not see it, so the counts
+    # are asserted here.
+    Context 'however many machines come back' {
+        It 'returns nothing when the estate has no machines' {
+            Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith { }
+            @(Get-VmPowerPlan).Count | Should -Be 0
+        }
+
+        It 'returns one decision for one machine' {
+            Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith { New-Machine }
+            $plan = @(Get-VmPowerPlan)
+            $plan.Count | Should -Be 1
+            $plan[0].Name | Should -Be 'vm-01'
+        }
+
+        It 'returns one decision per machine for many' {
+            Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith {
+                1..3 | ForEach-Object { New-Machine @{ name = "vm-0$_" } }
+            }
+            $plan = @(Get-VmPowerPlan)
+            $plan.Count | Should -Be 3
+            @($plan.Name | Sort-Object) | Should -Be @('vm-01', 'vm-02', 'vm-03')
+        }
+
+        It 'never invents a machine out of an empty row' {
+            Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith { $null }
+            @(Get-VmPowerPlan | Where-Object Name -eq '(unnamed)').Count | Should -Be 0
+        }
+    }
+
+    Context 'filtering' {
+        BeforeEach {
+            Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith {
+                @(
+                    New-Machine @{ name = 'stranded' }
+                    New-Machine @{ name = 'running'; powerState = 'PowerState/running' }
+                )
+            }
+        }
+
+        It 'reports every machine by default, acted on or not' {
+            @(Get-VmPowerPlan).Count | Should -Be 2
+        }
+
+        It 'returns only what an armed run would touch with -ActionableOnly' {
+            $plan = @(Get-VmPowerPlan -ActionableOnly)
+            $plan.Count | Should -Be 1
+            $plan[0].Name | Should -Be 'stranded'
+        }
+    }
+
+    It 'reads Resource Graph and writes nothing' {
+        # The read path must stay a read path: no Az cmdlet that changes anything belongs in it.
+        $body = (Get-Command Get-VmPowerPlan).Definition
+        $body | Should -Not -Match '\bStop-AzVM\b'
+        $body | Should -Not -Match '\bStart-AzVM\b'
+    }
+}
+
 Describe 'Invoke-VmPowerPlan' {
     Context 'the blast radius' {
         It 'performs nothing at all when the plan is larger than the cap' {

@@ -63,5 +63,9 @@ function Invoke-VmPowerGraphQuery {
         Write-Verbose "Resource Graph page $page returned $(@($result.data).Count) row(s); total so far $($rows.Count) of $($result.totalRecords)."
     } while ($skipToken)
 
-    , $rows.ToArray()
+    # No comma wrapper. ", $rows.ToArray()" emits the array as a single pipeline item, which @()
+    # at the call site then collects as one element: zero rows become one phantom machine, and n
+    # rows become one "machine" that is really the whole list. Emitting the rows and letting the
+    # caller wrap in @() is correct for none, one and many.
+    $rows.ToArray()
 }

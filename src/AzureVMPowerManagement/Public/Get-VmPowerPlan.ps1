@@ -91,6 +91,7 @@ function Get-VmPowerPlan {
     Write-Verbose "Resource Graph returned $($machines.Count) machine(s)."
 
     foreach ($machine in $machines) {
+        if ($null -eq $machine) { continue }
         $decision = Resolve-VmPowerAction -Machine $machine -ScheduleTag $ScheduleTag `
             -ExclusionTag $ExclusionTag -IncludeUntagged:$IncludeUntagged
         if ($ActionableOnly -and $decision.Action -eq 'None') { continue }
