@@ -203,13 +203,25 @@ Write-Output "Scope: $scope | Armed: $Armed | MaximumActions: $MaximumActions | 
 # Set-VmPowerSchedule writes the second, and a custom entry wins on a name collision (ADR 0005).
 # Read through Get-AutomationVariable rather than over ARM, so the identity needs no permission on
 # its own Automation Account.
+# The same variable has two shapes depending on how it is read. Over ARM, properties.value is the
+# raw JSON text - which is why Get-VmPowerSchedule parses it. Get-AutomationVariable deserialises
+# it first, so here a JSON array arrives as objects. Casting that to a string and parsing it fails
+# with "Additional text encountered after finished reading JSON content", which is what the first
+# real runbook job did on 2026-09-10. Both shapes are accepted.
+function ConvertTo-CatalogArray {
+    param([Parameter()][AllowNull()]$Value)
+    if ($null -eq $Value) { return @() }
+    if ($Value -is [string]) {
+        if (-not $Value.Trim()) { return @() }
+        return @($Value | ConvertFrom-Json -ErrorAction Stop)
+    }
+    @($Value)
+}
+
 if (-not $ScheduleCatalog) {
-    $shipped = [string](Get-Setting -Name 'PM_ScheduleCatalog' -Fallback '')
-    $custom = [string](Get-Setting -Name 'PM_ScheduleCatalogCustom' -Fallback '')
     $merged = [ordered]@{}
-    foreach ($source in @($shipped, $custom)) {
-        if (-not $source) { continue }
-        foreach ($entry in @($source | ConvertFrom-Json -ErrorAction Stop)) {
+    foreach ($variableName in 'PM_ScheduleCatalog', 'PM_ScheduleCatalogCustom') {
+        foreach ($entry in (ConvertTo-CatalogArray -Value (Get-Setting -Name $variableName))) {
             if ($null -eq $entry) { continue }
             $merged[[string]$entry.name] = $entry
         }
@@ -219,7 +231,7 @@ if (-not $ScheduleCatalog) {
 
 $catalog = @()
 if ($ScheduleCatalog) {
-    $parsed = @($ScheduleCatalog | ConvertFrom-Json -ErrorAction Stop)
+    $parsed = ConvertTo-CatalogArray -Value $ScheduleCatalog
     $checked = @($parsed | Test-VmPowerSchedule -Detailed)
     $bad = @($checked | Where-Object { -not $_.Valid })
     if ($bad.Count) {
