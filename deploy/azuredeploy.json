@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "14529460639446423332"
+      "templateHash": "4858952012713358425"
     }
   },
   "parameters": {
@@ -53,6 +53,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Override the module package source, for example a GitHub release asset. Empty means the Gallery URL for moduleVersion."
+      }
+    },
+    "importModule": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Import the module into the Automation Account. Set false when it arrives another way - a private feed, an existing pipeline, or a control plane stood up before the module is published anywhere. The runbook then expects the module to be there already."
       }
     },
     "runbookContentUri": {
@@ -261,6 +268,9 @@
             "value": "[parameters('runbookContentUri')]"
           },
           "contentVersion": "[if(empty(parameters('contentVersion')), createObject('value', parameters('moduleVersion')), createObject('value', parameters('contentVersion')))]",
+          "importModule": {
+            "value": "[parameters('importModule')]"
+          },
           "armed": {
             "value": "[parameters('armed')]"
           },
@@ -302,7 +312,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "9307461216043914978"
+              "templateHash": "1457780714156336792"
             }
           },
           "parameters": {
@@ -337,6 +347,12 @@
               "type": "string",
               "metadata": {
                 "description": "Version stamp for the module package and runbook content. Change it to force a re-import."
+              }
+            },
+            "importModule": {
+              "type": "bool",
+              "metadata": {
+                "description": "Import the module from modulePackageUri. False when the module reaches the account another way - a private feed, a pipeline, or a control plane stood up before the module is published anywhere."
               }
             },
             "armed": {
@@ -377,7 +393,7 @@
             "settings": [
               {
                 "name": "PM_Armed",
-                "value": "[string(parameters('armed'))]",
+                "value": "[toLower(string(parameters('armed')))]",
                 "description": "false plans and reports without touching a machine. Set it to true only after reading a week of the workbook."
               },
               {
@@ -392,22 +408,22 @@
               },
               {
                 "name": "PM_IncludeUntagged",
-                "value": "[string(parameters('includeUntagged'))]",
+                "value": "[toLower(string(parameters('includeUntagged')))]",
                 "description": "Act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged stranded machines are reported either way."
               },
               {
                 "name": "PM_ScheduleTag",
-                "value": "[parameters('scheduleTag')]",
+                "value": "[format('\"{0}\"', parameters('scheduleTag'))]",
                 "description": "Tag key whose value names a schedule in the catalogue."
               },
               {
                 "name": "PM_ExclusionTag",
-                "value": "[parameters('exclusionTag')]",
+                "value": "[format('\"{0}\"', parameters('exclusionTag'))]",
                 "description": "Tag key that protects a machine from every rule, whatever else is true."
               },
               {
                 "name": "PM_SubscriptionId",
-                "value": "[parameters('subscriptionIdFilter')]",
+                "value": "[format('\"{0}\"', parameters('subscriptionIdFilter'))]",
                 "description": "Comma-separated subscriptions to narrow discovery to. Empty plans across everything the identity can read."
               },
               {
@@ -479,6 +495,7 @@
               ]
             },
             {
+              "condition": "[parameters('importModule')]",
               "type": "Microsoft.Automation/automationAccounts/powerShell72Modules",
               "apiVersion": "2023-11-01",
               "name": "[format('{0}/{1}', parameters('automationAccountName'), 'AzureVMPowerManagement')]",
@@ -523,7 +540,7 @@
               "name": "[format('{0}/{1}', parameters('automationAccountName'), variables('settings')[copyIndex()].name)]",
               "properties": {
                 "isEncrypted": false,
-                "value": "[string(variables('settings')[copyIndex()].value)]",
+                "value": "[variables('settings')[copyIndex()].value]",
                 "description": "[variables('settings')[copyIndex()].description]"
               },
               "dependsOn": [

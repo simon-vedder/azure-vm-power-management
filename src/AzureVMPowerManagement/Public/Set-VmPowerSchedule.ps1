@@ -110,20 +110,34 @@ function Set-VmPowerSchedule {
             $existing[$expanded.Name] = $expanded
         }
 
+        # Not $schedule. PowerShell variable names are case-insensitive, so a loop variable spelled
+        # that way IS this function's [object[]]$Schedule parameter, and every assignment to it is
+        # silently coerced into a one-element array. The catalogue then serialised as a nested array
+        # that the reader could only describe as "a schedule with no name". Found against a real
+        # Automation Account on 2026-09-10; a typed parameter makes its own name unusable as a local.
         $replaced = @()
-        foreach ($schedule in $checked.Schedule) {
-            if ($existing.Contains($schedule.Name)) { $replaced += $schedule.Name }
-            $existing[$schedule.Name] = $schedule
+        $stored = [System.Collections.Generic.List[object]]::new()
+        foreach ($result in $checked) {
+            $expanded = $result.Schedule
+            if ($existing.Contains($expanded.Name)) { $replaced += $expanded.Name }
+            $existing[$expanded.Name] = $expanded
+            $stored.Add($expanded)
         }
 
         $target = "$AutomationAccountName/$variable"
-        $what = "Store $($checked.Count) schedule(s): $(($checked.Name) -join ', ')" +
+        # Select-Object, not ForEach-Object Name: the member form of ForEach-Object supports
+        # ShouldProcess, so under -WhatIf it produces its own confirmation line and returns nothing,
+        # and the message that is meant to say which schedules are involved says none of them.
+        $names = @($stored | Select-Object -ExpandProperty Name) -join ', '
+        $what = "Store $($stored.Count) schedule(s): $names" +
         $(if ($replaced) { " (replacing $($replaced -join ', '))" } else { '' })
 
         if (-not $PSCmdlet.ShouldProcess($target, $what)) { return }
 
-        Set-VmPowerCatalogVariable @common -VariableName $variable -Catalog @($existing.Values)
+        $toStore = [System.Collections.Generic.List[object]]::new()
+        foreach ($key in @($existing.Keys)) { $toStore.Add($existing[$key]) }
+        Set-VmPowerCatalogVariable @common -VariableName $variable -Catalog $toStore.ToArray()
 
-        if ($PassThru) { $checked.Schedule }
+        if ($PassThru) { $stored }
     }
 }

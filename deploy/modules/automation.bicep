@@ -18,6 +18,9 @@ param runbookContentUri string
 @description('Version stamp for the module package and runbook content. Change it to force a re-import.')
 param contentVersion string
 
+@description('Import the module from modulePackageUri. False when the module reaches the account another way - a private feed, a pipeline, or a control plane stood up before the module is published anywhere.')
+param importModule bool
+
 param armed bool
 param maximumActions int
 param minimumDwellMinutes int
@@ -89,7 +92,7 @@ resource diagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' 
 // (observed 2026-09-05). The module's manifest minimums match the runtime defaults instead, and
 // Resource Graph and the Automation variables are reached over REST rather than through
 // Az.ResourceGraph and Az.Automation, which are not in that bundle at all.
-resource toolModule 'Microsoft.Automation/automationAccounts/powershell72Modules@2023-11-01' = {
+resource toolModule 'Microsoft.Automation/automationAccounts/powershell72Modules@2023-11-01' = if (importModule) {
   parent: automationAccount
   name: 'AzureVMPowerManagement'
   properties: {
@@ -116,9 +119,7 @@ resource runbook 'Microsoft.Automation/automationAccounts/runbooks@2023-11-01' =
       version: contentVersion
     }
   }
-  dependsOn: [
-    toolModule
-  ]
+  dependsOn: importModule ? [toolModule] : []
 }
 
 // Every setting the runbook reads is a variable, not a job parameter. Automation ignores a PUT on
@@ -126,10 +127,16 @@ resource runbook 'Microsoft.Automation/automationAccounts/runbooks@2023-11-01' =
 // nothing, and the old parameters stay. Arming a deployment through a job parameter would
 // therefore mean deleting the link first, and a redeploy that looked successful would have done
 // nothing. A variable is one edit in the portal.
+//
+// Every value below has to be valid JSON. Automation rejects anything else with "Invalid JSON -
+// Kindly check the value of the variable", observed on 2026-09-10. Two traps come with that:
+// ARM's string(false) is "False" with a capital F, which JSON does not accept, and a bare word
+// like PowerSchedule is not a JSON string until it is quoted. Numbers and the array are already
+// valid, which is why they are the only ones that went in first time.
 var settings = [
   {
     name: 'PM_Armed'
-    value: string(armed)
+    value: toLower(string(armed))
     description: 'false plans and reports without touching a machine. Set it to true only after reading a week of the workbook.'
   }
   {
@@ -144,22 +151,22 @@ var settings = [
   }
   {
     name: 'PM_IncludeUntagged'
-    value: string(includeUntagged)
+    value: toLower(string(includeUntagged))
     description: 'Act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged stranded machines are reported either way.'
   }
   {
     name: 'PM_ScheduleTag'
-    value: scheduleTag
+    value: '"${scheduleTag}"'
     description: 'Tag key whose value names a schedule in the catalogue.'
   }
   {
     name: 'PM_ExclusionTag'
-    value: exclusionTag
+    value: '"${exclusionTag}"'
     description: 'Tag key that protects a machine from every rule, whatever else is true.'
   }
   {
     name: 'PM_SubscriptionId'
-    value: subscriptionIdFilter
+    value: '"${subscriptionIdFilter}"'
     description: 'Comma-separated subscriptions to narrow discovery to. Empty plans across everything the identity can read.'
   }
   {
@@ -177,7 +184,7 @@ resource settingVariables 'Microsoft.Automation/automationAccounts/variables@202
       // Never encrypted. The workbook reads these over ARM, and an encrypted variable does not
       // return its value there. None of them is a secret.
       isEncrypted: false
-      value: string(setting.value)
+      value: setting.value
       description: setting.description
     }
   }

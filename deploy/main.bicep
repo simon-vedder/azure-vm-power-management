@@ -30,6 +30,9 @@ param contentVersion string = ''
 @description('Override the module package source, for example a GitHub release asset. Empty means the Gallery URL for moduleVersion.')
 param modulePackageUri string = ''
 
+@description('Import the module into the Automation Account. Set false when it arrives another way - a private feed, an existing pipeline, or a control plane stood up before the module is published anywhere. The runbook then expects the module to be there already.')
+param importModule bool = true
+
 @description('Raw URL of the runbook wrapper. Pin to a tag in production.')
 param runbookContentUri string = 'https://raw.githubusercontent.com/simon-vedder/azure-vm-power-management/main/src/runbooks/Invoke-AzureVMPowerManagementRunbook.ps1'
 
@@ -133,6 +136,7 @@ module automation 'modules/automation.bicep' = {
     modulePackageUri: effectiveModuleUri
     runbookContentUri: runbookContentUri
     contentVersion: empty(contentVersion) ? moduleVersion : contentVersion
+    importModule: importModule
     armed: armed
     maximumActions: maximumActions
     minimumDwellMinutes: minimumDwellMinutes

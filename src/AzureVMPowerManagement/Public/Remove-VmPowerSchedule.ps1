@@ -96,6 +96,10 @@ function Remove-VmPowerSchedule {
         if (-not $PSCmdlet.ShouldProcess("$AutomationAccountName/$variable", "Remove $($present -join ', ')")) { return }
 
         foreach ($entry in $present) { $existing.Remove($entry) }
-        Set-VmPowerCatalogVariable @common -VariableName $variable -Catalog @($existing.Values)
+        # Same reason as in Set-VmPowerSchedule: the values are taken as an explicit list rather
+        # than relying on how a dictionary's Values collection unrolls.
+        $remaining = [System.Collections.Generic.List[object]]::new()
+        foreach ($key in @($existing.Keys)) { $remaining.Add($existing[$key]) }
+        Set-VmPowerCatalogVariable @common -VariableName $variable -Catalog $remaining.ToArray()
     }
 }

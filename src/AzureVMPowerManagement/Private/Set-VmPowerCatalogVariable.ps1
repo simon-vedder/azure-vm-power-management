@@ -53,9 +53,22 @@ function Set-VmPowerCatalogVariable {
     $uri = ('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Automation/automationAccounts/{2}/variables/{3}?api-version={4}' -f
         $subscription, $ResourceGroupName, $AutomationAccountName, $VariableName, $script:AutomationApiVersion)
 
-    # An array of one collapses to a bare object without the comma, and the reader would then get a
-    # schedule where it expects a list.
-    $json = ConvertTo-Json -InputObject @($Catalog) -Depth 8 -Compress
+    # A catalogue entry that is itself a collection serialises as a nested array, and the reader
+    # then sees a schedule with no name. That reached a real Automation Account once, on
+    # 2026-09-10, and the read side only said "name '' is not usable" - true, and useless. Refusing
+    # here names the entry instead.
+    $flat = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in @($Catalog)) {
+        if ($null -eq $entry) { continue }
+        if ($entry -is [System.Collections.IEnumerable] -and $entry -isnot [string]) {
+            throw ("A catalogue entry is a collection rather than a schedule, so the value would be " +
+                'a nested array that nothing can read back. This is a bug in the caller, not in the ' +
+                'catalogue: pass one schedule per entry.')
+        }
+        $flat.Add($entry)
+    }
+
+    $json = ConvertTo-Json -InputObject @($flat.ToArray()) -Depth 8 -Compress
 
     $limit = 1048576
     if ($json.Length -gt $limit) {
@@ -75,5 +88,5 @@ function Set-VmPowerCatalogVariable {
     if ($response.StatusCode -notin 200, 201) {
         throw "Writing the Automation variable $VariableName returned $($response.StatusCode): $($response.Content)"
     }
-    Write-Verbose "Wrote $(@($Catalog).Count) schedule(s), $($json.Length) characters, to $VariableName."
+    Write-Verbose "Wrote $($flat.Count) schedule(s), $($json.Length) characters, to $VariableName."
 }

@@ -22,6 +22,15 @@ function Expand-VmPowerSchedule {
         $Schedule
     )
 
+    # A collection here means somebody handed over a list where one schedule belongs. Without this
+    # the name comes out empty and the error blames the schedule for a mistake made two functions
+    # earlier - which is exactly what happened on 2026-09-10.
+    if ($Schedule -is [System.Collections.IEnumerable] -and
+        $Schedule -isnot [string] -and
+        $Schedule -isnot [System.Collections.IDictionary]) {
+        throw 'Expand-VmPowerSchedule was given a collection. It takes one schedule; pass them one at a time.'
+    }
+
     $raw = ConvertTo-VmPowerHashtable -InputObject $Schedule
 
     $name = [string]$raw['name']

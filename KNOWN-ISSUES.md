@@ -43,15 +43,15 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   machine**, and for a machine whose instance view it does not have. The rules treat an unreadable
   power state as a reason to do nothing rather than a reason to act. Verified against a live tenant
   on 2026-09-10.
-- *(to verify)* **How Azure Automation stores a JSON value in a variable.** The catalogue is written
-  with `ConvertTo-Json` and read with `ConvertFrom-Json`, which round-trips byte-identically in
-  isolation. Whether Automation re-encodes the value on the way in is not established: the reader
-  parses a second time when the first parse yields a string, so both shapes work, but only one of
-  them is what actually happens. On the lab list.
-- *(to verify)* **Whether a redeployment overwrites `PM_ScheduleCatalogCustom`.** It must not - that
-  split is the whole point of having two variables. The deployment writes only
-  `PM_ScheduleCatalog`, and nothing in the module writes there. To be proved by deploying twice with
-  a custom schedule in place.
+- *(observed)* **An Automation variable value has to be valid JSON, and is stored verbatim.**
+  Anything else is refused with `Invalid JSON - Kindly check the value of the variable`. Two traps
+  come with that in Bicep: ARM's `string(false)` is `False` with a capital F, which JSON does not
+  accept, and a bare word like `PowerSchedule` is not a JSON string until it is quoted. Numbers and
+  arrays from `string()` are already valid. Measured against a real Automation Account on
+  2026-09-10, where four of eight variables failed on the first deployment.
+- *(observed)* **A redeployment leaves `PM_ScheduleCatalogCustom` alone.** Deployed, added two
+  custom schedules including one overriding a shipped example, redeployed, and the override still
+  won. 2026-09-10. That split is the whole point of having two variables.
 
 ## Sharp edges in the tooling itself
 
@@ -68,6 +68,17 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   variable may arrive as a boolean or as the text, depending on how it was stored, so a cast would
   arm a deployment whose `PM_Armed` says false. The runbook parses booleans explicitly and refuses
   to run on a value it cannot read as a yes or a no.
+- **A local variable that matches a typed parameter name is coerced to that type.** PowerShell
+  variable names are case-insensitive, so inside a function with `[object[]]$Schedule` a loop
+  variable written `$schedule` *is* that parameter: every assignment to it silently becomes a
+  one-element array. The stored catalogue came out as `[[{..}],[{..}]]` and the read side could only
+  say "a schedule with no name". It cost several hours on 2026-09-10 because the function behaves
+  correctly everywhere except inside the one that declares the parameter, so no isolated test could
+  see it. A typed parameter makes its own name unusable as a local.
+- **The member form of `ForEach-Object` supports `ShouldProcess`.** `$items | ForEach-Object Name`
+  inside a `SupportsShouldProcess` function raises its own confirmation under `-WhatIf` and returns
+  nothing, so a message built from it loses exactly the information it exists to carry. Use
+  `Select-Object -ExpandProperty`.
 - **`, $array` emits the array as one pipeline item.** `@()` at the call site then collects it as a
   single element rather than unrolling it, so no rows become one phantom row and many rows become
   one object that is really the whole list.

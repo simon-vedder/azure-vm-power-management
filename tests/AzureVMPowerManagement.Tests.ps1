@@ -701,6 +701,49 @@ Describe 'The catalogue in an Automation Account' {
         }
     }
 
+    Context 'the shape that reaches the variable' {
+        It 'stores a flat list, not a list of lists' {
+            # This is the test that would have caught the parameter-name collision. A loop variable
+            # named $schedule inside Set-VmPowerSchedule IS the function's [object[]]$Schedule
+            # parameter - PowerShell names are case-insensitive - so every assignment to it was
+            # coerced into a one-element array, and the catalogue serialised as [[{..}],[{..}]].
+            # The read side could only report "a schedule with no name". Found against a real
+            # Automation Account on 2026-09-10.
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @() }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            @(
+                New-VmPowerSchedule -Name first-one -TimeZone UTC -Daily '07:00-19:00'
+                New-VmPowerSchedule -Name second-one -TimeZone UTC -Daily '08:00-20:00'
+            ) | Set-VmPowerSchedule @accountArgs -Confirm:$false
+
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter {
+                @($Catalog).Count -eq 2 -and
+                -not (@($Catalog) | Where-Object { $_ -is [System.Array] }) -and
+                -not (@($Catalog) | Where-Object { -not $_.Name }) -and
+                (ConvertTo-Json -InputObject @($Catalog) -Depth 8 -Compress) -notmatch '^\[\['
+            }
+        }
+
+        It 'refuses to store a catalogue entry that is a collection' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @() }
+            $nested = , @(New-VmPowerSchedule -Name only-one -TimeZone UTC -Start '06:00')
+            {
+                & (Get-Module AzureVMPowerManagement) {
+                    param($c)
+                    Set-VmPowerCatalogVariable -ResourceGroupName rg -AutomationAccountName aa -VariableName v -Catalog $c
+                } $nested
+            } | Should -Throw -ExpectedMessage '*collection rather than a schedule*'
+        }
+
+        It 'names the caller when Expand-VmPowerSchedule is handed a list' {
+            {
+                & (Get-Module AzureVMPowerManagement) {
+                    param($c) Expand-VmPowerSchedule -Schedule $c
+                } @(@{ name = 'a-schedule'; timeZone = 'UTC'; daily = '07:00-19:00' })
+            } | Should -Throw -ExpectedMessage '*one schedule*'
+        }
+    }
+
     Context 'the JSON round trip' {
         It 'survives being written and read back unchanged' {
             # Exactly what Set-VmPowerCatalogVariable writes and Get-VmPowerCatalogVariable reads.

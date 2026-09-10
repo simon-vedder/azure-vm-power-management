@@ -89,7 +89,10 @@ function Test-VmPowerSchedule {
                 Valid      = [bool](-not $problem)
                 Problem    = $problem
             }
-            if ($Detailed) { $result['Schedule'] = $expanded }
+            # @(...)[0] because a collection landing on this property becomes a nested array in
+            # anything that stores the result, and the read side can only report a schedule with
+            # no name. Expand-VmPowerSchedule returns one object; this makes that true here too.
+            if ($Detailed) { $result['Schedule'] = if ($null -eq $expanded) { $null } else { @($expanded)[0] } }
             $results.Add([pscustomobject]$result)
         }
 
