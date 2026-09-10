@@ -59,6 +59,28 @@ schedule — see [ADR 0005](../docs/decisions/0005-json-is-the-storage-format-no
 | Custom role `roleName` with `roleActions` | exactly what the runbook needs |
 | Role assignment on `targetResourceGroupName`, or the subscription when empty | least privilege |
 
+## The policies
+
+Two definitions and their assignments, both generated from `scheduleCatalog` so they cannot drift
+from the schedules the controller actually reads. Nothing in the policy module names a schedule of
+its own.
+
+| Policy | What it does | Default |
+|---|---|---|
+| `<prefix>-unknown-schedule` | The `PowerSchedule` tag names something not in the catalogue | `Audit` |
+| `<prefix>-untagged` | A virtual machine carries no `PowerSchedule` tag at all | `Audit` |
+
+The first catches the typo. Without it, `office-hours-hc` means the machine is reported as
+unresolvable and nothing happens to it — which looks exactly like a machine nobody onboarded, and is
+the failure mode that is hardest to notice. Set `unknownScheduleEffect=Deny` once the estate is
+clean; doing it first blocks work rather than fixing it.
+
+The second is a report, not a rule. An untagged machine is deliberately unmanaged, and this is the
+list of machines nobody has decided about yet.
+
+Neither assignment carries an identity, because neither can change anything. Set
+`deployPolicies=false` to skip them.
+
 ## The role
 
 Four actions, and no more:

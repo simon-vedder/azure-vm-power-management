@@ -960,3 +960,36 @@ Describe 'Time zone ids across platforms' {
             Should -Be @(($windows | Show-VmPowerScheduleCalendar -FromUtc $from -Days 3).Utc)
     }
 }
+
+Describe 'The generated policy' {
+    BeforeAll {
+        $deployRoot = Join-Path $PSScriptRoot '..' 'deploy'
+        $policyBicep = Get-Content -Raw (Join-Path $deployRoot 'modules' 'policy.bicep')
+        $mainBicep = Get-Content -Raw (Join-Path $deployRoot 'main.bicep')
+    }
+
+    It 'never names a schedule of its own' {
+        # The whole reason a tag names a schedule rather than containing one is that there is one
+        # place to change it. A policy with its own copy of the names would reintroduce the drift.
+        $policyBicep | Should -Not -Match "office-hours"
+        $policyBicep | Should -Not -Match "always-on"
+    }
+
+    It 'takes its allowed values from the catalogue' {
+        $mainBicep | Should -Match 'scheduleNames:\s*\[for entry in scheduleCatalog: entry\.name\]'
+    }
+
+    It 'takes the tag key from the same parameter the controller reads' {
+        $mainBicep | Should -Match 'scheduleTag:\s*scheduleTag'
+    }
+
+    It 'defaults to reporting rather than blocking' {
+        # Deny on an estate that already has typos blocks work instead of fixing it.
+        $mainBicep | Should -Match "param unknownScheduleEffect string = 'Audit'"
+        $mainBicep | Should -Match "param untaggedEffect string = 'Audit'"
+    }
+
+    It 'asks for no identity, because it can change nothing' {
+        $policyBicep | Should -Not -Match 'identity:'
+    }
+}

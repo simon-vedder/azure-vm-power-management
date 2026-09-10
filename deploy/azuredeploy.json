@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "13060106198198770066"
+      "templateHash": "12455154556325888157"
     }
   },
   "parameters": {
@@ -175,6 +175,40 @@
     "scheduleTimeZone": {
       "type": "string",
       "defaultValue": "Etc/UTC"
+    },
+    "deployPolicies": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the two policies that keep the tag honest: one that catches a schedule name that does not exist, one that reports machines nobody has tagged. Generated from scheduleCatalog, so they cannot drift from it."
+      }
+    },
+    "unknownScheduleEffect": {
+      "type": "string",
+      "defaultValue": "Audit",
+      "allowedValues": [
+        "Audit",
+        "Deny",
+        "Disabled"
+      ],
+      "metadata": {
+        "description": "What to do about a machine whose tag names a schedule that does not exist. Audit first: Deny on an estate that already has typos blocks work rather than fixing it."
+      }
+    },
+    "untaggedEffect": {
+      "type": "string",
+      "defaultValue": "Audit",
+      "allowedValues": [
+        "Audit",
+        "Disabled"
+      ],
+      "metadata": {
+        "description": "What to do about a machine with no schedule tag. A report, not a rule - an untagged machine is deliberately unmanaged."
+      }
+    },
+    "policyNamePrefix": {
+      "type": "string",
+      "defaultValue": "vm-power"
     },
     "roleName": {
       "type": "string",
@@ -713,6 +747,327 @@
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation')]",
         "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('roleName')))]"
       ]
+    },
+    {
+      "condition": "[parameters('deployPolicies')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "power-schedule-policies",
+      "location": "[deployment().location]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "scheduleNames": {
+            "copy": [
+              {
+                "name": "value",
+                "count": "[length(parameters('scheduleCatalog'))]",
+                "input": "[parameters('scheduleCatalog')[copyIndex('value')].name]"
+              }
+            ]
+          },
+          "scheduleTag": {
+            "value": "[parameters('scheduleTag')]"
+          },
+          "unknownScheduleEffect": {
+            "value": "[parameters('unknownScheduleEffect')]"
+          },
+          "untaggedEffect": {
+            "value": "[parameters('untaggedEffect')]"
+          },
+          "assignmentScopeResourceGroupName": {
+            "value": "[parameters('targetResourceGroupName')]"
+          },
+          "policyNamePrefix": {
+            "value": "[parameters('policyNamePrefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "5238643556976514601"
+            }
+          },
+          "parameters": {
+            "scheduleNames": {
+              "type": "array",
+              "metadata": {
+                "description": "The schedule names that exist. Derived from the catalogue, never typed here."
+              }
+            },
+            "scheduleTag": {
+              "type": "string",
+              "metadata": {
+                "description": "Tag key whose value names a schedule."
+              }
+            },
+            "unknownScheduleEffect": {
+              "type": "string",
+              "allowedValues": [
+                "Audit",
+                "Deny",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "What to do about a machine whose tag names a schedule that does not exist. Audit reports it; Deny stops the deployment that would create it. Audit first: Deny on an estate that already has typos blocks work rather than fixing it."
+              }
+            },
+            "untaggedEffect": {
+              "type": "string",
+              "allowedValues": [
+                "Audit",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "What to do about a machine with no schedule tag at all. This is a report, not a rule - an untagged machine is simply not managed, and the list is who has not decided yet."
+              }
+            },
+            "assignmentScopeResourceGroupName": {
+              "type": "string",
+              "metadata": {
+                "description": "Scope the assignments apply to. Empty assigns at the subscription."
+              }
+            },
+            "policyNamePrefix": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "variables": {
+            "vmTypeCondition": {
+              "field": "type",
+              "equals": "Microsoft.Compute/virtualMachines"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/policyDefinitions",
+              "apiVersion": "2023-04-01",
+              "name": "[format('{0}-unknown-schedule', parameters('policyNamePrefix'))]",
+              "properties": {
+                "displayName": "VM power schedule tag must name a schedule that exists",
+                "description": "[format('The {0} tag points at an entry in the controller''s catalogue. A value that is not in it means the machine is reported as unresolvable and nothing happens to it - which looks exactly like a machine nobody onboarded. This catches the typo at deployment time instead of at half past six.', parameters('scheduleTag'))]",
+                "policyType": "Custom",
+                "mode": "Indexed",
+                "metadata": {
+                  "category": "Compute",
+                  "version": "1.0.0"
+                },
+                "parameters": {
+                  "effect": {
+                    "type": "String",
+                    "defaultValue": "[parameters('unknownScheduleEffect')]",
+                    "allowedValues": [
+                      "Audit",
+                      "Deny",
+                      "Disabled"
+                    ],
+                    "metadata": {
+                      "displayName": "Effect"
+                    }
+                  }
+                },
+                "policyRule": {
+                  "if": {
+                    "allOf": [
+                      "[variables('vmTypeCondition')]",
+                      {
+                        "field": "[format('tags[{0}]', parameters('scheduleTag'))]",
+                        "exists": true
+                      },
+                      {
+                        "field": "[format('tags[{0}]', parameters('scheduleTag'))]",
+                        "notIn": "[parameters('scheduleNames')]"
+                      }
+                    ]
+                  },
+                  "then": {
+                    "effect": "[[parameters('effect')]"
+                  }
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/policyDefinitions",
+              "apiVersion": "2023-04-01",
+              "name": "[format('{0}-untagged', parameters('policyNamePrefix'))]",
+              "properties": {
+                "displayName": "VM has no power schedule tag",
+                "description": "[format('Not a rule, a report. A machine without the {0} tag is not managed by the controller, deliberately - opt-in is the design. This is the list of machines nobody has decided about yet.', parameters('scheduleTag'))]",
+                "policyType": "Custom",
+                "mode": "Indexed",
+                "metadata": {
+                  "category": "Compute",
+                  "version": "1.0.0"
+                },
+                "parameters": {
+                  "effect": {
+                    "type": "String",
+                    "defaultValue": "[parameters('untaggedEffect')]",
+                    "allowedValues": [
+                      "Audit",
+                      "Disabled"
+                    ],
+                    "metadata": {
+                      "displayName": "Effect"
+                    }
+                  }
+                },
+                "policyRule": {
+                  "if": {
+                    "allOf": [
+                      "[variables('vmTypeCondition')]",
+                      {
+                        "field": "[format('tags[{0}]', parameters('scheduleTag'))]",
+                        "exists": false
+                      }
+                    ]
+                  },
+                  "then": {
+                    "effect": "[[parameters('effect')]"
+                  }
+                }
+              }
+            },
+            {
+              "condition": "[empty(parameters('assignmentScopeResourceGroupName'))]",
+              "type": "Microsoft.Authorization/policyAssignments",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}-unknown-schedule', parameters('policyNamePrefix'))]",
+              "properties": {
+                "displayName": "VM power schedule tag must name a schedule that exists",
+                "policyDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-unknown-schedule', parameters('policyNamePrefix')))]",
+                "enforcementMode": "Default",
+                "metadata": "[parameters('tags')]"
+              },
+              "dependsOn": [
+                "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-unknown-schedule', parameters('policyNamePrefix')))]"
+              ]
+            },
+            {
+              "condition": "[empty(parameters('assignmentScopeResourceGroupName'))]",
+              "type": "Microsoft.Authorization/policyAssignments",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}-untagged', parameters('policyNamePrefix'))]",
+              "properties": {
+                "displayName": "VM has no power schedule tag",
+                "policyDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-untagged', parameters('policyNamePrefix')))]",
+                "enforcementMode": "Default",
+                "metadata": "[parameters('tags')]"
+              },
+              "dependsOn": [
+                "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-untagged', parameters('policyNamePrefix')))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('assignmentScopeResourceGroupName')))]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "power-schedule-policy-assignments",
+              "resourceGroup": "[parameters('assignmentScopeResourceGroupName')]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "policyNamePrefix": {
+                    "value": "[parameters('policyNamePrefix')]"
+                  },
+                  "unknownScheduleDefinitionId": {
+                    "value": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-unknown-schedule', parameters('policyNamePrefix')))]"
+                  },
+                  "untaggedDefinitionId": {
+                    "value": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-untagged', parameters('policyNamePrefix')))]"
+                  },
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.46.1.21595",
+                      "templateHash": "2671479133573380361"
+                    }
+                  },
+                  "parameters": {
+                    "policyNamePrefix": {
+                      "type": "string"
+                    },
+                    "unknownScheduleDefinitionId": {
+                      "type": "string"
+                    },
+                    "untaggedDefinitionId": {
+                      "type": "string"
+                    },
+                    "tags": {
+                      "type": "object"
+                    }
+                  },
+                  "resources": [
+                    {
+                      "type": "Microsoft.Authorization/policyAssignments",
+                      "apiVersion": "2024-04-01",
+                      "name": "[format('{0}-unknown-schedule', parameters('policyNamePrefix'))]",
+                      "properties": {
+                        "displayName": "VM power schedule tag must name a schedule that exists",
+                        "policyDefinitionId": "[parameters('unknownScheduleDefinitionId')]",
+                        "enforcementMode": "Default",
+                        "metadata": "[parameters('tags')]"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Authorization/policyAssignments",
+                      "apiVersion": "2024-04-01",
+                      "name": "[format('{0}-untagged', parameters('policyNamePrefix'))]",
+                      "properties": {
+                        "displayName": "VM has no power schedule tag",
+                        "policyDefinitionId": "[parameters('untaggedDefinitionId')]",
+                        "enforcementMode": "Default",
+                        "metadata": "[parameters('tags')]"
+                      }
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-unknown-schedule', parameters('policyNamePrefix')))]",
+                "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-untagged', parameters('policyNamePrefix')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "unknownScheduleDefinitionId": {
+              "type": "string",
+              "value": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-unknown-schedule', parameters('policyNamePrefix')))]"
+            },
+            "untaggedDefinitionId": {
+              "type": "string",
+              "value": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', format('{0}-untagged', parameters('policyNamePrefix')))]"
+            },
+            "allowedScheduleNames": {
+              "type": "array",
+              "value": "[parameters('scheduleNames')]"
+            }
+          }
+        }
+      }
     }
   ],
   "outputs": {
