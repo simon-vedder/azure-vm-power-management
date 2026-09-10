@@ -17,7 +17,7 @@ instead of [switch] because the Automation "Start runbook" dialog cannot populat
 ## Syntax
 
 ```powershell
-./Invoke-AzureVMPowerManagementRunbook.ps1 [[-SubscriptionId] <string[]>] [[-Armed] <bool>] [-MaximumActions] <int> [[-MinimumDwellMinutes] <int>] [[-IncludeUntagged] <bool>] [[-ScheduleTag] <string>] [[-ExclusionTag] <string>] [[-ManagedIdentityClientId] <string>] [<CommonParameters>]
+./Invoke-AzureVMPowerManagementRunbook.ps1 [[-SubscriptionId] <string[]>] [[-Armed] <bool>] [-MaximumActions] <int> [[-MinimumDwellMinutes] <int>] [[-IncludeUntagged] <bool>] [[-ScheduleCatalog] <string>] [[-ScheduleTag] <string>] [[-ExclusionTag] <string>] [[-ManagedIdentityClientId] <string>] [<CommonParameters>]
 ```
 
 ## Requirements and notes
@@ -38,6 +38,7 @@ Prerequisites:       Azure Automation PowerShell 7.2+ runtime; modules AzureVMPo
 | `-MaximumActions` | Int32 | yes | no | 0 | Refuse the whole run if it would act on more machines than this. There is no safe default for somebody else's estate, so the deployment sets it explicitly. |
 | `-MinimumDwellMinutes` | Int32 | no | no | 30 | Leave a machine alone if this runbook acted on it more recently than this. |
 | `-IncludeUntagged` | Boolean | no | no |  | Also act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged machines that are powered off and still billed are reported either way. |
+| `-ScheduleCatalog` | String | no | no |  | The schedule catalogue as JSON. The deployment reads PM_ScheduleCatalog and PM_ScheduleCatalogCustom and passes the merged result. Empty means only the stranded-machine rule applies, which is a complete and useful run on its own. |
 | `-ScheduleTag` | String | no | no |  | Tag key that opts a machine in. Empty uses the module's default, PowerSchedule. |
 | `-ExclusionTag` | String | no | no |  | Tag key that protects a machine from every rule. Empty uses the module's default. |
 | `-ManagedIdentityClientId` | String | no | no |  | Client ID of a user-assigned managed identity. Leave empty for the system-assigned identity. |

@@ -15,11 +15,15 @@ function Resolve-VmPowerAction {
       3. A transitional state (starting, stopping, deallocating) produces no action. Something is
          already happening to this machine.
       4. PowerState/stopped means allocated on a host, not running, and billed for compute. That
-         is the machine to deallocate - see docs/decisions/0004.
-      5. Anything else has no rule yet. Schedules arrive in the next slice.
+         is the machine to deallocate, and it wins over the schedule: somebody already shut this
+         machine down, so the only question left is whether to keep paying for it. The next
+         scheduled start brings it back if the schedule says so.
+      5. The schedule decides. Up and deallocated starts it; Down and running deallocates it;
+         anything already in the state the schedule wants is left alone.
+      6. No schedule and nothing stranded means no rule applies.
 
-    Rule 4 is the whole of version one, and it is deliberately the rule with no running workload
-    to interrupt.
+    Rule 4 is the one with no running workload to interrupt, which is why it is the rule that ships
+    first and the rule that can be armed first.
 
     .PARAMETER Machine
     One record from the Resource Graph inventory: id, name, powerState, tags.
@@ -29,6 +33,11 @@ function Resolve-VmPowerAction {
 
     .PARAMETER ExclusionTag
     Tag key that protects a machine from every rule.
+
+    .PARAMETER ScheduleState
+    Desired state per schedule name, as Get-VmPowerScheduleState works it out: Up, Down or Unknown.
+    Computed once per schedule by the caller rather than per machine, because a thousand machines
+    usually share a handful of schedules.
 
     .PARAMETER IncludeUntagged
     Allow a decision on a machine carrying no schedule tag. Off by default, because opt-in is the
@@ -46,6 +55,9 @@ function Resolve-VmPowerAction {
 
         [Parameter()]
         [string]$ExclusionTag = 'PowerSchedule-Exclude',
+
+        [Parameter()]
+        [hashtable]$ScheduleState = @{},
 
         [Parameter()]
         [switch]$IncludeUntagged
@@ -93,8 +105,37 @@ function Resolve-VmPowerAction {
             }
             break
         }
+        ($schedule -and $ScheduleState.ContainsKey($schedule)) {
+            $wanted = [string]$ScheduleState[$schedule]
+            switch ($true) {
+                ($wanted -eq 'Up' -and $powerState -eq $script:PowerState.Deallocated) {
+                    'Start', 'ShouldBeRunning', "Schedule '$schedule' has it up at this time and it is deallocated."
+                    break
+                }
+                ($wanted -eq 'Down' -and $powerState -eq $script:PowerState.Running) {
+                    'Deallocate', 'ShouldBeStopped', "Schedule '$schedule' has it down at this time and it is running."
+                    break
+                }
+                ($wanted -eq 'Unknown') {
+                    'None', 'ScheduleStateUnknown', "Schedule '$schedule' has no action in the lookback window, so there is nothing to compare against."
+                    break
+                }
+                default {
+                    'None', 'MatchesSchedule', "Already $powerState, which is what schedule '$schedule' wants at this time."
+                }
+            }
+            break
+        }
+        # [bool] is not decoration. switch ($true) does not coerce the way -eq does: $true -eq
+        # 'office-hours-ch' is True, but ('office-hours-ch') as a case label never matches, because
+        # switch compares the case value against the switch value as a string. Written without the
+        # cast this branch is dead and the machine falls through to a reason that is not true.
+        ([bool]$schedule) {
+            'None', 'ScheduleNotInCatalogue', "The tag names the schedule '$schedule', which is not in the catalogue this run was given. A machine is not acted on by a rule nobody can read."
+            break
+        }
         default {
-            'None', 'NoRuleMatched', "Power state is $powerState and no rule in this version covers it."
+            'None', 'NoRuleMatched', "Power state is $powerState, the machine carries no schedule, and nothing else applies."
         }
     }
 

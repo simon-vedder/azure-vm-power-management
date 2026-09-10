@@ -10,14 +10,17 @@ The plan is the same object the runbook acts on, so what this prints is what an 
 do. Machines the rules leave alone are returned too, with the reason - a machine missing from a
 report is indistinguishable from a machine nobody looked at.
 
-Version one carries one rule: a machine in PowerState/stopped is powered off but still
-allocated on a host, and still billed for compute. Deallocating it interrupts nothing that is
-running. Schedules arrive in the next version.
+Two rules apply. A machine in PowerState/stopped is powered off but still allocated on a host,
+and still billed for compute; deallocating it interrupts nothing that is running. And a machine
+whose tag names a schedule in -Schedule is compared against what that schedule wants right now.
+
+Without -Schedule only the first rule runs, which is a complete and useful report on its own:
+it needs no catalogue, no tags and no trust.
 
 ## Syntax
 
 ```powershell
-Get-VmPowerPlan [[-SubscriptionId] <string[]>] [[-ScheduleTag] <string>] [[-ExclusionTag] <string>] [-IncludeUntagged] [-ActionableOnly] [<CommonParameters>]
+Get-VmPowerPlan [[-SubscriptionId] <string[]>] [[-Schedule] <Object[]>] [[-AtUtc] <datetime>] [[-ScheduleTag] <string>] [[-ExclusionTag] <string>] [-IncludeUntagged] [-ActionableOnly] [<CommonParameters>]
 ```
 
 ## Requirements and notes
@@ -36,6 +39,8 @@ Writes: Nothing. This command reads Resource Graph and returns objects.
 | Name | Type | Required | Pipeline | Default | Description |
 |---|---|---|---|---|---|
 | `-SubscriptionId` | String[] | no | no |  | Subscriptions to search. Defaults to every subscription in the current context, which is what makes this one query rather than a loop. |
+| `-Schedule` | Object[] | no | no |  | The catalogue to resolve tag values against. Each schedule's desired state is worked out once for the whole run rather than per machine, because a large estate usually shares a handful of schedules. Without this, machines carrying a schedule tag are reported as not resolvable rather than acted on by a rule nobody supplied. |
+| `-AtUtc` | DateTime | no | no | [datetime]::UtcNow | The moment to plan for. Defaults to now; set it to see what the plan would have been at some other time, which is how a schedule change is checked before it is stored. |
 | `-ScheduleTag` | String | no | no |  | Tag key that opts a machine in. Defaults to PowerSchedule. |
 | `-ExclusionTag` | String | no | no |  | Tag key that protects a machine from every rule. Defaults to PowerSchedule-Exclude. |
 | `-IncludeUntagged` | SwitchParameter | no | no |  | Also plan actions for machines carrying no schedule tag. Off by default: a machine nobody has tagged is one nobody has decided about. Untagged stranded machines are reported either way, with the reason StrandedButNotOnboarded. |
@@ -58,6 +63,14 @@ Get-VmPowerPlan | Where-Object Reason -match 'Stranded|StoppedNotDeallocated' | 
 ```
 
 ### Example 3
+
+```powershell
+# With a catalogue, so the schedule rule runs too
+$catalog = New-VmPowerSchedule -Name office-hours-ch -TimeZone 'Europe/Zurich' -Weekdays '07:30-18:30'
+Get-VmPowerPlan -Schedule $catalog | Format-Table Name, Schedule, PowerState, Action, Reason
+```
+
+### Example 4
 
 ```powershell
 # Plan only what is onboarded, in two named subscriptions, then hand it to the executor to preview

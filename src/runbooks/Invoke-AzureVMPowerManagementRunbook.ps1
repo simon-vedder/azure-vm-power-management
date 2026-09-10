@@ -32,6 +32,11 @@ Leave a machine alone if this runbook acted on it more recently than this.
 Also act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged machines
 that are powered off and still billed are reported either way.
 
+.PARAMETER ScheduleCatalog
+The schedule catalogue as JSON. The deployment reads PM_ScheduleCatalog and
+PM_ScheduleCatalogCustom and passes the merged result. Empty means only the stranded-machine rule
+applies, which is a complete and useful run on its own.
+
 .PARAMETER ScheduleTag
 Tag key that opts a machine in. Empty uses the module's default, PowerSchedule.
 
@@ -87,6 +92,9 @@ param(
     [bool]$IncludeUntagged = $false,
 
     [Parameter()]
+    [string]$ScheduleCatalog,
+
+    [Parameter()]
     [string]$ScheduleTag,
 
     [Parameter()]
@@ -112,7 +120,26 @@ $null = Connect-AzAccount @connect
 $scope = if ($SubscriptionId) { $SubscriptionId -join ', ' } else { 'every readable subscription' }
 Write-Output "Scope: $scope | Armed: $Armed | MaximumActions: $MaximumActions | Dwell: $MinimumDwellMinutes min"
 
+# The catalogue is validated before it decides anything. A malformed entry that reached the rules
+# would either throw halfway through a run or, worse, resolve to something nobody wrote.
+$catalog = @()
+if ($ScheduleCatalog) {
+    $parsed = @($ScheduleCatalog | ConvertFrom-Json -ErrorAction Stop)
+    $checked = @($parsed | Test-VmPowerSchedule -Detailed)
+    $bad = @($checked | Where-Object { -not $_.Valid })
+    if ($bad.Count) {
+        throw ("The schedule catalogue has $($bad.Count) problem(s), so nothing was planned: " +
+            (($bad | ForEach-Object { "$($_.Name): $($_.Problem)" }) -join ' | '))
+    }
+    $catalog = @($checked.Schedule)
+    Write-Output "Catalogue: $($catalog.Count) schedule(s) - $(($catalog.Name | Sort-Object) -join ', ')"
+}
+else {
+    Write-Output 'Catalogue: none. Only the stranded-machine rule applies.'
+}
+
 $planArgs = @{ IncludeUntagged = $IncludeUntagged }
+if ($catalog.Count) { $planArgs['Schedule'] = $catalog }
 if ($SubscriptionId) { $planArgs['SubscriptionId'] = $SubscriptionId }
 if ($ScheduleTag) { $planArgs['ScheduleTag'] = $ScheduleTag }
 if ($ExclusionTag) { $planArgs['ExclusionTag'] = $ExclusionTag }
