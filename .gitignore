@@ -5,3 +5,6 @@
 *.tfstate.*
 *.tfvars
 crash.log
+
+# macOS
+.DS_Store
