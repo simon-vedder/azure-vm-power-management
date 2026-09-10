@@ -3,7 +3,9 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.1.3-preview] - 2026-09-10
+
+The first end-to-end run of the runbook itself, and the four defects it found.
 
 ### Fixed
 
