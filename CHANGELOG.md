@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1-preview] - 2026-09-10
+
+The first two runbook jobs in a real Automation Account, and what they broke.
+
+### Fixed
+
+- **Time zone ids resolve on both platforms.** The Azure Automation PowerShell 7.2 sandbox is
+  Windows Server 2019, not Linux, and knows only Windows time zone ids: `Europe/Zurich` does not
+  resolve there and neither does `Etc/UTC`. A schedule keeps the id it was written with and it is
+  translated where it is used, using the CLDR mapping .NET 6 carries. `0.1.0-preview` could not
+  resolve any schedule inside a sandbox.
+- **The catalogue is read in whichever shape it arrives.** Over ARM an Automation variable's value
+  is raw JSON text; `Get-AutomationVariable` deserialises it first. The runbook assumed the former
+  and died on `Additional text encountered after finished reading JSON content`.
+
+### Verified
+
+- **`Get-AutomationVariable` works in the PowerShell 7.2 runtime.** Every scalar setting resolved on
+  the first real job: `Armed: False | MaximumActions: 25 | Dwell: 30 min`.
+- **The module imports cleanly from the Gallery next to the global Az bundle**, when its manifest
+  minimums match the runtime's own versions.
+
 ## [0.1.0-preview] - 2026-09-10
 
 First release of the rebuild. The tag-driven runbook that came before it is kept in
@@ -50,5 +72,6 @@ until this has run a full loop inside a real Automation Account.
   as available there but was not exercised, and every setting the deployment writes is read through
   it. See [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
-[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.1...HEAD
+[0.1.1-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.1
 [0.1.0-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.0
