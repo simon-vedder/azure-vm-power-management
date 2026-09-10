@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "5409004181655503265"
+      "templateHash": "14529460639446423332"
     }
   },
   "parameters": {
@@ -66,25 +66,97 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Resource group the identity gets the operator role on. Empty assigns the role at subscription scope."
+        "description": "Resource group the identity gets the operator role on. Empty assigns the role at subscription scope. Start with one resource group."
       }
     },
-    "mode": {
+    "armed": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether the deployed controller performs its plan. False plans and reports and changes nothing, which is how it should arrive. Editable afterwards through the PM_Armed variable without a redeployment."
+      }
+    },
+    "maximumActions": {
+      "type": "int",
+      "minValue": 1,
+      "maxValue": 10000,
+      "metadata": {
+        "description": "Refuse the whole run if it would act on more machines than this. There is no default that is right for somebody else estate, so it has to be stated."
+      }
+    },
+    "minimumDwellMinutes": {
+      "type": "int",
+      "defaultValue": 30,
+      "minValue": 0,
+      "maxValue": 1440,
+      "metadata": {
+        "description": "Leave a machine alone this long after acting on it. Azure bills a five-minute minimum per start, so a schedule that flaps costs money as well as being wrong."
+      }
+    },
+    "includeUntagged": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Act on machines carrying no schedule tag. Off by default: a machine nobody has tagged is one nobody has decided about. Untagged machines that are powered off and still billed are reported either way."
+      }
+    },
+    "scheduleTag": {
       "type": "string",
-      "defaultValue": "Report",
-      "allowedValues": [
-        "Report",
-        "Apply"
+      "defaultValue": "PowerSchedule",
+      "metadata": {
+        "description": "Tag key whose value names a schedule in the catalogue."
+      }
+    },
+    "exclusionTag": {
+      "type": "string",
+      "defaultValue": "PowerSchedule-Exclude",
+      "metadata": {
+        "description": "Tag key that protects a machine from every rule."
+      }
+    },
+    "subscriptionIdFilter": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Comma-separated subscriptions to narrow discovery to. Empty plans across everything the identity can read, which is one Resource Graph query rather than a loop."
+      }
+    },
+    "scheduleCatalog": {
+      "type": "array",
+      "defaultValue": [
+        {
+          "name": "office-hours-ch",
+          "displayName": "Office hours, Switzerland",
+          "timeZone": "Europe/Zurich",
+          "weekdays": "07:30-18:30",
+          "minimumDwellMinutes": 30
+        },
+        {
+          "name": "always-on",
+          "displayName": "Managed, but never stopped",
+          "timeZone": "Etc/UTC",
+          "actions": [
+            {
+              "action": "Start",
+              "at": "06:00",
+              "weekDays": "All"
+            }
+          ],
+          "minimumDwellMinutes": 30
+        }
       ],
       "metadata": {
-        "description": "Runbook mode for the scheduled job: Report changes nothing, Apply removes findings."
+        "description": "Schedules that ship with this deployment. Overwritten on every deployment; anything added with Set-VmPowerSchedule lives in PM_ScheduleCatalogCustom and is never touched here. Examples, not a fixed set - see docs/decisions/0005."
       }
     },
     "intervalMinutes": {
       "type": "int",
       "defaultValue": 60,
-      "minValue": 15,
-      "maxValue": 1440
+      "minValue": 60,
+      "maxValue": 1440,
+      "metadata": {
+        "description": "How often the controller wakes. Azure Automation cannot go below an hour, and it does not need to: each run plans the hour ahead. See docs/decisions/0006."
+      }
     },
     "scheduleStartTime": {
       "type": "string",
@@ -104,11 +176,13 @@
     "roleActions": {
       "type": "array",
       "defaultValue": [
-        "Microsoft.Resources/subscriptions/read",
+        "Microsoft.Compute/virtualMachines/read",
+        "Microsoft.Compute/virtualMachines/start/action",
+        "Microsoft.Compute/virtualMachines/deallocate/action",
         "Microsoft.Resources/subscriptions/resourceGroups/read"
       ],
       "metadata": {
-        "description": "Exactly the actions the runbook needs. Reader is usually not enough and Contributor is always too much."
+        "description": "Exactly the actions the runbook calls, and nothing else. Reader cannot start or deallocate; Virtual Machine Contributor can also install extensions, which is code execution as SYSTEM or root on every machine in scope."
       }
     },
     "tags": {
@@ -139,7 +213,7 @@
       "name": "[guid(subscription().id, parameters('roleName'))]",
       "properties": {
         "roleName": "[parameters('roleName')]",
-        "description": "Exactly what the AzureVMPowerManagement runbook calls, nothing else.",
+        "description": "Read a virtual machine, start it, deallocate it. Nothing else the AzureVMPowerManagement runbook does needs a permission.",
         "type": "CustomRole",
         "assignableScopes": [
           "[subscription().id]"
@@ -187,11 +261,29 @@
             "value": "[parameters('runbookContentUri')]"
           },
           "contentVersion": "[if(empty(parameters('contentVersion')), createObject('value', parameters('moduleVersion')), createObject('value', parameters('contentVersion')))]",
-          "subscriptionIdForJobs": {
-            "value": "[subscription().subscriptionId]"
+          "armed": {
+            "value": "[parameters('armed')]"
           },
-          "mode": {
-            "value": "[parameters('mode')]"
+          "maximumActions": {
+            "value": "[parameters('maximumActions')]"
+          },
+          "minimumDwellMinutes": {
+            "value": "[parameters('minimumDwellMinutes')]"
+          },
+          "includeUntagged": {
+            "value": "[parameters('includeUntagged')]"
+          },
+          "scheduleTag": {
+            "value": "[parameters('scheduleTag')]"
+          },
+          "exclusionTag": {
+            "value": "[parameters('exclusionTag')]"
+          },
+          "subscriptionIdFilter": {
+            "value": "[parameters('subscriptionIdFilter')]"
+          },
+          "scheduleCatalog": {
+            "value": "[parameters('scheduleCatalog')]"
           },
           "intervalMinutes": {
             "value": "[parameters('intervalMinutes')]"
@@ -210,7 +302,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "2595986925781643277"
+              "templateHash": "9307461216043914978"
             }
           },
           "parameters": {
@@ -247,11 +339,29 @@
                 "description": "Version stamp for the module package and runbook content. Change it to force a re-import."
               }
             },
-            "subscriptionIdForJobs": {
+            "armed": {
+              "type": "bool"
+            },
+            "maximumActions": {
+              "type": "int"
+            },
+            "minimumDwellMinutes": {
+              "type": "int"
+            },
+            "includeUntagged": {
+              "type": "bool"
+            },
+            "scheduleTag": {
               "type": "string"
             },
-            "mode": {
+            "exclusionTag": {
               "type": "string"
+            },
+            "subscriptionIdFilter": {
+              "type": "string"
+            },
+            "scheduleCatalog": {
+              "type": "array"
             },
             "intervalMinutes": {
               "type": "int"
@@ -262,6 +372,50 @@
             "scheduleTimeZone": {
               "type": "string"
             }
+          },
+          "variables": {
+            "settings": [
+              {
+                "name": "PM_Armed",
+                "value": "[string(parameters('armed'))]",
+                "description": "false plans and reports without touching a machine. Set it to true only after reading a week of the workbook."
+              },
+              {
+                "name": "PM_MaximumActions",
+                "value": "[string(parameters('maximumActions'))]",
+                "description": "Refuse the whole run if it would act on more machines than this. A jump in the count usually means a tag or a schedule changed, not the estate."
+              },
+              {
+                "name": "PM_MinimumDwellMinutes",
+                "value": "[string(parameters('minimumDwellMinutes'))]",
+                "description": "Leave a machine alone this long after acting on it. Azure bills a five-minute minimum per start."
+              },
+              {
+                "name": "PM_IncludeUntagged",
+                "value": "[string(parameters('includeUntagged'))]",
+                "description": "Act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged stranded machines are reported either way."
+              },
+              {
+                "name": "PM_ScheduleTag",
+                "value": "[parameters('scheduleTag')]",
+                "description": "Tag key whose value names a schedule in the catalogue."
+              },
+              {
+                "name": "PM_ExclusionTag",
+                "value": "[parameters('exclusionTag')]",
+                "description": "Tag key that protects a machine from every rule, whatever else is true."
+              },
+              {
+                "name": "PM_SubscriptionId",
+                "value": "[parameters('subscriptionIdFilter')]",
+                "description": "Comma-separated subscriptions to narrow discovery to. Empty plans across everything the identity can read."
+              },
+              {
+                "name": "PM_ScheduleCatalog",
+                "value": "[string(parameters('scheduleCatalog'))]",
+                "description": "The schedules that ship with this deployment. Overwritten on every deployment - put your own in PM_ScheduleCatalogCustom."
+              }
+            ]
           },
           "resources": [
             {
@@ -360,11 +514,28 @@
               ]
             },
             {
+              "copy": {
+                "name": "settingVariables",
+                "count": "[length(variables('settings'))]"
+              },
+              "type": "Microsoft.Automation/automationAccounts/variables",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('automationAccountName'), variables('settings')[copyIndex()].name)]",
+              "properties": {
+                "isEncrypted": false,
+                "value": "[string(variables('settings')[copyIndex()].value)]",
+                "description": "[variables('settings')[copyIndex()].description]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]"
+              ]
+            },
+            {
               "type": "Microsoft.Automation/automationAccounts/schedules",
               "apiVersion": "2023-11-01",
               "name": "[format('{0}/{1}', parameters('automationAccountName'), 'run-vm-power-management')]",
               "properties": {
-                "description": "[format('Runs the AzureVMPowerManagement runbook in {0} mode.', parameters('mode'))]",
+                "description": "Heartbeat for the AzureVMPowerManagement controller. One trigger, however many schedules - see docs/decisions/0006.",
                 "frequency": "Minute",
                 "interval": "[parameters('intervalMinutes')]",
                 "startTime": "[parameters('scheduleStartTime')]",
@@ -377,23 +548,20 @@
             {
               "type": "Microsoft.Automation/automationAccounts/jobSchedules",
               "apiVersion": "2023-11-01",
-              "name": "[format('{0}/{1}', parameters('automationAccountName'), guid(resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName')), parameters('mode'), 'Invoke-AzureVMPowerManagementRunbook'))]",
+              "name": "[format('{0}/{1}', parameters('automationAccountName'), guid(resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName')), 'run-vm-power-management', 'Invoke-AzureVMPowerManagementRunbook'))]",
               "properties": {
                 "schedule": {
                   "name": "run-vm-power-management"
                 },
                 "runbook": {
                   "name": "Invoke-AzureVMPowerManagementRunbook"
-                },
-                "parameters": {
-                  "SubscriptionId": "[parameters('subscriptionIdForJobs')]",
-                  "Mode": "[parameters('mode')]"
                 }
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]",
                 "[resourceId('Microsoft.Automation/automationAccounts/runbooks', parameters('automationAccountName'), 'Invoke-AzureVMPowerManagementRunbook')]",
-                "[resourceId('Microsoft.Automation/automationAccounts/schedules', parameters('automationAccountName'), 'run-vm-power-management')]"
+                "[resourceId('Microsoft.Automation/automationAccounts/schedules', parameters('automationAccountName'), 'run-vm-power-management')]",
+                "settingVariables"
               ]
             }
           ],
@@ -546,6 +714,10 @@
     "workspaceId": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation'), '2025-04-01').outputs.workspaceId.value]"
+    },
+    "armed": {
+      "type": "bool",
+      "value": "[parameters('armed')]"
     }
   }
 }

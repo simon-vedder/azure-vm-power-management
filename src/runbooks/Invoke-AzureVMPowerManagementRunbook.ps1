@@ -23,7 +23,8 @@ False, the default, plans and reports without touching a machine. True performs 
 
 .PARAMETER MaximumActions
 Refuse the whole run if it would act on more machines than this. There is no safe default for
-somebody else's estate, so the deployment sets it explicitly.
+somebody else's estate: without this and without the Automation variable PM_MaximumActions, the
+run refuses rather than picking one.
 
 .PARAMETER MinimumDwellMinutes
 Leave a machine alone if this runbook acted on it more recently than this.
@@ -33,9 +34,9 @@ Also act on machines carrying no schedule tag. Off by default: opt-in is the rul
 that are powered off and still billed are reported either way.
 
 .PARAMETER ScheduleCatalog
-The schedule catalogue as JSON. The deployment reads PM_ScheduleCatalog and
-PM_ScheduleCatalogCustom and passes the merged result. Empty means only the stranded-machine rule
-applies, which is a complete and useful run on its own.
+The schedule catalogue as JSON. Empty reads PM_ScheduleCatalog and PM_ScheduleCatalogCustom from
+the Automation Account and merges them, custom winning on a name collision. No catalogue at all
+means only the stranded-machine rule applies, which is a complete and useful run on its own.
 
 .PARAMETER ScheduleTag
 Tag key that opts a machine in. Empty uses the module's default, PowerSchedule.
@@ -80,7 +81,7 @@ param(
     [Parameter()]
     [bool]$Armed = $false,
 
-    [Parameter(Mandatory)]
+    [Parameter()]
     [ValidateRange(1, 10000)]
     [int]$MaximumActions,
 
@@ -106,6 +107,82 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Every operable setting comes from an Automation variable unless the caller passed it explicitly.
+# Job schedule parameters are immutable once the link exists - Automation ignores a PUT on a link
+# that is already there and keeps the old parameters, reporting success. Arming a deployment would
+# then mean deleting the link and redeploying. Variables are editable in the portal instead.
+function Get-Setting {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter()]$Fallback = $null
+    )
+    if (-not (Get-Command -Name Get-AutomationVariable -ErrorAction SilentlyContinue)) { return $Fallback }
+    try {
+        $value = Get-AutomationVariable -Name $Name -ErrorAction Stop
+        if ($null -eq $value -or "$value" -eq '') { return $Fallback }
+        return $value
+    }
+    catch { return $Fallback }
+}
+
+# [bool]'false' is $true. Every non-empty string is. Whether Get-AutomationVariable hands back a
+# real boolean or the text depends on how the value was stored, so a cast here would arm a
+# deployment whose PM_Armed says false - the exact failure every guard in this tool exists to
+# prevent. Parsed explicitly, and anything unrecognised stops the run: a controller that cannot
+# tell whether it is armed has no business acting.
+function ConvertTo-SettingBool {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter()][AllowNull()]$Value,
+        [Parameter(Mandatory)][bool]$Fallback
+    )
+    if ($null -eq $Value) { return $Fallback }
+    if ($Value -is [bool]) { return $Value }
+    $text = "$Value".Trim().ToLowerInvariant()
+    if (-not $text) { return $Fallback }
+    switch ($text) {
+        'true' { return $true }
+        '1' { return $true }
+        'yes' { return $true }
+        'false' { return $false }
+        '0' { return $false }
+        'no' { return $false }
+    }
+    throw "The Automation variable $Name holds '$Value', which is not a yes or a no. Set it to true or false."
+}
+
+function ConvertTo-SettingInt {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter()][AllowNull()]$Value,
+        [Parameter(Mandatory)][int]$Fallback
+    )
+    if ($null -eq $Value -or "$Value".Trim() -eq '') { return $Fallback }
+    $number = 0
+    if (-not [int]::TryParse("$Value".Trim(), [ref]$number)) {
+        throw "The Automation variable $Name holds '$Value', which is not a whole number."
+    }
+    $number
+}
+
+if (-not $PSBoundParameters.ContainsKey('Armed')) { $Armed = ConvertTo-SettingBool -Name 'PM_Armed' -Value (Get-Setting -Name 'PM_Armed') -Fallback $false }
+if (-not $PSBoundParameters.ContainsKey('MinimumDwellMinutes')) { $MinimumDwellMinutes = ConvertTo-SettingInt -Name 'PM_MinimumDwellMinutes' -Value (Get-Setting -Name 'PM_MinimumDwellMinutes') -Fallback 30 }
+if (-not $PSBoundParameters.ContainsKey('IncludeUntagged')) { $IncludeUntagged = ConvertTo-SettingBool -Name 'PM_IncludeUntagged' -Value (Get-Setting -Name 'PM_IncludeUntagged') -Fallback $false }
+if (-not $PSBoundParameters.ContainsKey('ScheduleTag')) { $ScheduleTag = [string](Get-Setting -Name 'PM_ScheduleTag' -Fallback '') }
+if (-not $PSBoundParameters.ContainsKey('ExclusionTag')) { $ExclusionTag = [string](Get-Setting -Name 'PM_ExclusionTag' -Fallback '') }
+if (-not $PSBoundParameters.ContainsKey('SubscriptionId')) {
+    $fromVariable = [string](Get-Setting -Name 'PM_SubscriptionId' -Fallback '')
+    if ($fromVariable) { $SubscriptionId = @($fromVariable -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+}
+if (-not $PSBoundParameters.ContainsKey('MaximumActions')) {
+    $MaximumActions = ConvertTo-SettingInt -Name 'PM_MaximumActions' -Value (Get-Setting -Name 'PM_MaximumActions') -Fallback 0
+}
+if ($MaximumActions -lt 1) {
+    throw ('No blast radius is set. Give -MaximumActions, or set the Automation variable ' +
+        'PM_MaximumActions. There is no default that is right for somebody else''s estate, so this ' +
+        'refuses rather than picking one - see docs/decisions/0004.')
+}
+
 Import-Module Az.Accounts -ErrorAction Stop
 Import-Module Az.Compute -ErrorAction Stop
 Import-Module AzureVMPowerManagement -ErrorAction Stop
@@ -122,6 +199,24 @@ Write-Output "Scope: $scope | Armed: $Armed | MaximumActions: $MaximumActions | 
 
 # The catalogue is validated before it decides anything. A malformed entry that reached the rules
 # would either throw halfway through a run or, worse, resolve to something nobody wrote.
+# The catalogue is two variables: the deployment owns the first and overwrites it, nothing but
+# Set-VmPowerSchedule writes the second, and a custom entry wins on a name collision (ADR 0005).
+# Read through Get-AutomationVariable rather than over ARM, so the identity needs no permission on
+# its own Automation Account.
+if (-not $ScheduleCatalog) {
+    $shipped = [string](Get-Setting -Name 'PM_ScheduleCatalog' -Fallback '')
+    $custom = [string](Get-Setting -Name 'PM_ScheduleCatalogCustom' -Fallback '')
+    $merged = [ordered]@{}
+    foreach ($source in @($shipped, $custom)) {
+        if (-not $source) { continue }
+        foreach ($entry in @($source | ConvertFrom-Json -ErrorAction Stop)) {
+            if ($null -eq $entry) { continue }
+            $merged[[string]$entry.name] = $entry
+        }
+    }
+    if ($merged.Count) { $ScheduleCatalog = ConvertTo-Json -InputObject @($merged.Values) -Depth 8 -Compress }
+}
+
 $catalog = @()
 if ($ScheduleCatalog) {
     $parsed = @($ScheduleCatalog | ConvertFrom-Json -ErrorAction Stop)

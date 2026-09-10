@@ -64,6 +64,10 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
 - **`[datetime]'2026-10-25T00:00:00Z'` is not a UTC value.** PowerShell converts it to the local
   time zone and keeps `Kind` as `Local`. Relabelling it with `SpecifyKind` moves the window by the
   local offset without saying so; the incoming `Kind` is respected instead.
+- **`[bool]'false'` is `$true`.** Every non-empty string is. A setting read back from an Automation
+  variable may arrive as a boolean or as the text, depending on how it was stored, so a cast would
+  arm a deployment whose `PM_Armed` says false. The runbook parses booleans explicitly and refuses
+  to run on a value it cannot read as a yes or a no.
 - **`, $array` emits the array as one pipeline item.** `@()` at the call site then collects it as a
   single element rather than unrolling it, so no rows become one phantom row and many rows become
   one object that is really the whole list.
