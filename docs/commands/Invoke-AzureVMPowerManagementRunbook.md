@@ -10,6 +10,11 @@ It ships disarmed. -Armed defaults to false, so a deployed schedule discovers, d
 everything while changing nothing. Read a week of that before arming it - see
 docs/decisions/0004-eager-to-start-reluctant-to-stop.md.
 
+Disarmed is the same code path with -WhatIf on it, not a second one. Every guard is evaluated, so a
+blast radius set too low fails the job in week one rather than at the moment somebody arms it. A
+disarmed job that fails on "more than the N allowed" is the tool telling you the number is wrong
+while nothing is at stake.
+
 Discovery reaches every subscription the managed identity can read in one Resource Graph call, so
 -SubscriptionId is a narrowing option rather than a requirement. All optional flags are [bool]
 instead of [switch] because the Automation "Start runbook" dialog cannot populate switch parameters.
@@ -36,7 +41,7 @@ Prerequisites:       Azure Automation PowerShell 7.2+ runtime; modules AzureVMPo
 | `-SubscriptionId` | String[] | no | no |  | Narrow discovery to these subscriptions. Leave empty to plan across everything the identity reads. |
 | `-Armed` | Boolean | no | no |  | False, the default, plans and reports without touching a machine. True performs the plan. |
 | `-MaximumActions` | Int32 | no | no | 0 | Refuse the whole run if it would act on more machines than this. There is no safe default for somebody else's estate: without this and without the Automation variable PM_MaximumActions, the run refuses rather than picking one. |
-| `-MinimumDwellMinutes` | Int32 | no | no | 30 | Leave a machine alone if this runbook acted on it more recently than this. |
+| `-MinimumDwellMinutes` | Int32 | no | no | 30 | Leave a machine alone if this runbook acted on it more recently than this. The memory lives in the Automation variable PM_LastActionAt, which this runbook writes at the end of an armed run - without it there is nothing to compare against and the guard cannot fire. Zero switches the check off. A schedule carrying its own minimumDwellMinutes can ask for longer, never shorter. |
 | `-IncludeUntagged` | Boolean | no | no |  | Also act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged machines that are powered off and still billed are reported either way. |
 | `-ScheduleCatalog` | String | no | no |  | The schedule catalogue as JSON. Empty reads PM_ScheduleCatalog and PM_ScheduleCatalogCustom from the Automation Account and merges them, custom winning on a name collision. No catalogue at all means only the stranded-machine rule applies, which is a complete and useful run on its own. |
 | `-ScheduleTag` | String | no | no |  | Tag key that opts a machine in. Empty uses the module's default, PowerSchedule. |

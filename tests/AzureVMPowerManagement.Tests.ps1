@@ -36,8 +36,14 @@ BeforeAll {
     # The desired state is an object now: what the schedule wants, how long it has wanted it, and
     # the schedule's start grace. See docs/decisions/0007.
     function New-State {
-        param([string]$State = 'Up', [int]$MinutesSince = 5, [int]$Grace = 120)
-        [pscustomobject]@{ State = $State; MinutesSince = $MinutesSince; StartGraceMinutes = $Grace; At = [datetime]::UtcNow }
+        param([string]$State = 'Up', [int]$MinutesSince = 5, [int]$Grace = 120, [int]$Dwell = 30)
+        [pscustomobject]@{
+            State               = $State
+            MinutesSince        = $MinutesSince
+            StartGraceMinutes   = $Grace
+            MinimumDwellMinutes = $Dwell
+            At                  = [datetime]::UtcNow
+        }
     }
 
     function New-Decision {
@@ -286,6 +292,13 @@ Describe 'Get-VmPowerPlan' {
 }
 
 Describe 'Invoke-VmPowerPlan' {
+    BeforeAll {
+        # Every fixture decision carries a subscription id, and the executor now points the context
+        # at it before acting. Stubbed here so these tests stay about the guards; the switch itself
+        # has its own context below.
+        Mock -CommandName Switch-VmPowerSubscriptionContext -ModuleName AzureVMPowerManagement -MockWith { }
+    }
+
     Context 'the blast radius' {
         It 'performs nothing at all when the plan is larger than the cap' {
             # Acting on the first n and then stopping would be the worst of both: a partial change
@@ -335,6 +348,53 @@ Describe 'Invoke-VmPowerPlan' {
             $result.Status | Should -Be 'WhatIf'
         }
 
+        It 'takes the longer dwell when the schedule asks for one' {
+            # A schedule whose machines take twenty minutes to come up may ask for more caution
+            # than the run-wide default. minimumDwellMinutes was authored, validated and stored
+            # long before anything read it.
+            $recent = @{ 'id-1' = [datetime]::UtcNow.AddMinutes(-45) }
+            $result = New-Decision @{ Id = 'id-1'; MinimumDwellMinutes = 90 } |
+                Invoke-VmPowerPlan -MaximumActions 10 -MinimumDwellMinutes 30 -LastActionAt $recent -WhatIf
+            $result.Status | Should -Be 'Skipped'
+            $result.Detail | Should -Match '90 minute dwell'
+        }
+
+        It 'never lets a schedule ask for a shorter one' {
+            # A guard the thing being guarded can weaken is not a guard.
+            $recent = @{ 'id-1' = [datetime]::UtcNow.AddMinutes(-5) }
+            $result = New-Decision @{ Id = 'id-1'; MinimumDwellMinutes = 1 } |
+                Invoke-VmPowerPlan -MaximumActions 10 -MinimumDwellMinutes 30 -LastActionAt $recent -WhatIf
+            $result.Status | Should -Be 'Skipped'
+            $result.Detail | Should -Match '30 minute dwell'
+        }
+
+        It 'stays off when the operator switched it off, whatever the schedule says' {
+            $recent = @{ 'id-1' = [datetime]::UtcNow.AddMinutes(-1) }
+            $result = New-Decision @{ Id = 'id-1'; MinimumDwellMinutes = 240 } |
+                Invoke-VmPowerPlan -MaximumActions 10 -MinimumDwellMinutes 0 -LastActionAt $recent -WhatIf
+            $result.Status | Should -Be 'WhatIf'
+        }
+
+        It 'reads a stored time as an instant, not as local time' {
+            # The store round-trips through an Automation variable, so it comes back as text.
+            # [datetime]'...Z' is Local, and the naive cast moved the window by the local offset.
+            $stored = @{ 'id-1' = [datetime]::UtcNow.AddMinutes(-5).ToString('o') }
+            $result = New-Decision @{ Id = 'id-1' } |
+                Invoke-VmPowerPlan -MaximumActions 10 -MinimumDwellMinutes 30 -LastActionAt $stored -WhatIf
+            $result.Status | Should -Be 'Skipped'
+            $result.Detail | Should -Match 'dwell'
+        }
+
+        It 'leaves a machine alone when its stored time cannot be read' {
+            # A corrupt safety store must not read as "no memory". That stands the guard down
+            # silently, which is the one outcome it exists to prevent.
+            $broken = @{ 'id-1' = 'not-a-time' }
+            $result = New-Decision @{ Id = 'id-1' } |
+                Invoke-VmPowerPlan -MaximumActions 10 -MinimumDwellMinutes 30 -LastActionAt $broken -WhatIf
+            $result.Status | Should -Be 'Skipped'
+            $result.Detail | Should -Match 'not a time'
+        }
+
         It 'requires a blast radius rather than assuming one' {
             (Get-Command Invoke-VmPowerPlan).Parameters['MaximumActions'].Attributes.Mandatory |
                 Should -Contain $true
@@ -379,6 +439,78 @@ Describe 'Invoke-VmPowerPlan' {
             ($result | Where-Object Name -eq 'vm-bad').Detail | Should -Match 'OperationNotAllowed'
             ($result | Where-Object Name -eq 'vm-good').Status | Should -Be 'Done'
         }
+    }
+
+    Context 'across subscriptions' {
+        # Discovery is one Resource Graph query over everything the identity reads. Execution is
+        # not: Stop-AzVM has no -SubscriptionId and acts wherever the context points. Every test
+        # here exists because the two halves used to disagree in silence.
+        It 'points the context at the machine before touching it' {
+            Mock -CommandName Stop-AzVM -ModuleName AzureVMPowerManagement -MockWith { }
+            $plan = @(
+                New-Decision @{ Id = 'a'; Name = 'vm-a'; SubscriptionId = 'sub-one' }
+                New-Decision @{ Id = 'b'; Name = 'vm-b'; SubscriptionId = 'sub-two' }
+            )
+            $null = $plan | Invoke-VmPowerPlan -MaximumActions 10 -Confirm:$false
+
+            Should -Invoke Switch-VmPowerSubscriptionContext -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter { $SubscriptionId -eq 'sub-one' }
+            Should -Invoke Switch-VmPowerSubscriptionContext -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter { $SubscriptionId -eq 'sub-two' }
+        }
+
+        It 'switches before the power call, not after it' {
+            # The order is the whole point. Reversed, the call lands in whichever subscription the
+            # previous machine left behind - and a reused resource group and machine name make that
+            # a successful deallocation of the wrong machine.
+            $script:order = [System.Collections.Generic.List[string]]::new()
+            Mock -CommandName Switch-VmPowerSubscriptionContext -ModuleName AzureVMPowerManagement -MockWith { $script:order.Add("switch:$SubscriptionId") }
+            Mock -CommandName Stop-AzVM -ModuleName AzureVMPowerManagement -MockWith { $script:order.Add("stop:$Name") }
+
+            $null = New-Decision @{ SubscriptionId = 'sub-one' } | Invoke-VmPowerPlan -MaximumActions 10 -Confirm:$false
+            $script:order -join ' ' | Should -Be 'switch:sub-one stop:vm-01'
+        }
+
+        It 'reports the machine as failed when its subscription cannot be reached, and keeps going' {
+            Mock -CommandName Stop-AzVM -ModuleName AzureVMPowerManagement -MockWith { }
+            Mock -CommandName Switch-VmPowerSubscriptionContext -ModuleName AzureVMPowerManagement -MockWith {
+                if ($SubscriptionId -eq 'sub-locked') { throw 'Could not switch to subscription sub-locked' }
+            }
+            $plan = @(
+                New-Decision @{ Id = 'a'; Name = 'vm-locked'; SubscriptionId = 'sub-locked' }
+                New-Decision @{ Id = 'b'; Name = 'vm-open'; SubscriptionId = 'sub-open' }
+            )
+            $result = @($plan | Invoke-VmPowerPlan -MaximumActions 10 -Confirm:$false)
+
+            ($result | Where-Object Name -eq 'vm-locked').Status | Should -Be 'Failed'
+            ($result | Where-Object Name -eq 'vm-locked').Detail | Should -Match 'sub-locked'
+            ($result | Where-Object Name -eq 'vm-open').Status | Should -Be 'Done'
+            Should -Invoke Stop-AzVM -ModuleName AzureVMPowerManagement -Times 1
+        }
+    }
+}
+
+Describe 'The schedule dwell reaching the machine' {
+    # Three hops, and it was broken at every one of them: New-VmPowerSchedule wrote
+    # minimumDwellMinutes, Expand-VmPowerSchedule validated it, and nothing downstream ever looked.
+    It 'travels from the schedule state onto the decision' {
+        $decision = & $Private.Resolve -Machine (New-Machine @{ powerState = 'PowerState/running' }) `
+            -ScheduleState @{ 'office-hours-ch' = (New-State -State 'Down' -Dwell 75) }
+        $decision.MinimumDwellMinutes | Should -Be 75
+    }
+
+    It 'is zero on a machine no schedule resolved for, so only the run-wide setting applies' {
+        $decision = & $Private.Resolve -Machine (New-Machine @{ tags = [pscustomobject]@{} })
+        $decision.MinimumDwellMinutes | Should -Be 0
+    }
+
+    It 'survives the whole authoring path, from New-VmPowerSchedule to the plan' {
+        $schedule = New-VmPowerSchedule -Name lab-slow -TimeZone 'UTC' -Daily '08:00-20:00' -MinimumDwellMinutes 90
+        $schedule.MinimumDwellMinutes | Should -Be 90
+
+        Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith {
+            New-Machine @{ powerState = 'PowerState/running'; tags = [pscustomobject]@{ PowerSchedule = 'lab-slow' } }
+        }
+        $plan = @(Get-VmPowerPlan -Schedule $schedule)
+        $plan[0].MinimumDwellMinutes | Should -Be 90
     }
 }
 
@@ -994,6 +1126,64 @@ Describe 'The generated policy' {
     }
 }
 
+Describe 'The runbook and the deployment' {
+    # Two files that have to agree and no compiler that checks them. Every finding below was
+    # invisible to the rest of the suite, because the module can be perfect while the wrapper
+    # around it asks for a setting nobody creates or forgets to hand over a guard's only input.
+    BeforeAll {
+        $runbookText = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'src' 'runbooks' 'Invoke-AzureVMPowerManagementRunbook.ps1')
+        $automationBicep = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'deploy' 'modules' 'automation.bicep')
+
+        $readByRunbook = @([regex]::Matches($runbookText, "PM_[A-Za-z]+") | ForEach-Object { $_.Value } | Sort-Object -Unique)
+        $createdByDeployment = @([regex]::Matches($automationBicep, "name: 'PM_[A-Za-z]+'") |
+                ForEach-Object { $_.Value -replace "name: '|'", '' } | Sort-Object -Unique)
+    }
+
+    It 'creates every setting the runbook reads' {
+        # A variable the runbook asks for and the deployment does not create reads as "not set",
+        # which is indistinguishable from a deliberate default. One exception, and it is the
+        # point of ADR 0005: the deployment must never create PM_ScheduleCatalogCustom, because
+        # creating it is what would overwrite it. Set-VmPowerSchedule makes it on first write and
+        # the reader treats a 404 as an empty catalogue.
+        $byDesign = @('PM_ScheduleCatalogCustom')
+        $missing = @($readByRunbook | Where-Object { $_ -notin $createdByDeployment -and $_ -notin $byDesign })
+        $missing | Should -BeNullOrEmpty -Because "the deployment creates $($createdByDeployment -join ', ')"
+        $createdByDeployment | Should -Not -Contain 'PM_ScheduleCatalogCustom'
+    }
+
+    It 'creates nothing the runbook never reads' {
+        # The other direction, which is how a setting becomes a knob that does nothing.
+        $unread = @($createdByDeployment | Where-Object { $_ -notin $readByRunbook })
+        $unread | Should -BeNullOrEmpty
+    }
+
+    It 'hands the dwell guard the memory it needs' {
+        # Invoke-VmPowerPlan's dwell check does nothing without -LastActionAt. It shipped without
+        # it, so three documents described a guard that could not fire.
+        $runbookText | Should -Match 'LastActionAt'
+        $runbookText | Should -Match "Save-ActionMemory"
+    }
+
+    It 'plans and performs through one call, so a dry run evaluates the same guards' {
+        # There used to be two paths: disarmed printed the plan, armed ran it through the guards.
+        # A first week could not warn about a blast radius it never checked.
+        $calls = @([regex]::Matches($runbookText, '(?m)^\s*(if \(-not \$Armed\) \{ \$execute|foreach \(\$result in \(\$plan \| Invoke-VmPowerPlan)'))
+        @([regex]::Matches($runbookText, 'Invoke-VmPowerPlan @execute')).Count | Should -Be 1
+        $calls.Count | Should -BeGreaterThan 1
+    }
+
+    It 'writes every Automation variable as valid JSON' {
+        # Automation refuses anything else with "Invalid JSON - Kindly check the value of the
+        # variable". A bare word and ARM's String(false) both fail; four of eight did on the first
+        # real deployment.
+        $values = @([regex]::Matches($automationBicep, "(?m)^\s*value: (.+)$") | ForEach-Object { $_.Groups[1].Value.Trim() })
+        foreach ($value in $values) {
+            $value | Should -Not -Match '^[A-Za-z][A-Za-z0-9-]*$' -Because "a bare word is not JSON: $value"
+        }
+        $automationBicep | Should -Match "toLower\(string\(armed\)\)"
+    }
+}
+
 Describe 'The workbook' {
     BeforeAll {
         $deployRoot = Join-Path $PSScriptRoot '..' 'deploy'
@@ -1032,8 +1222,58 @@ Describe 'The workbook' {
         $titles | Should -Contain 'Powered off and still billed'
     }
 
+    It 'never treats a machine name as an identity' {
+        # Two subscriptions with a resource group of the same name and a machine of the same name
+        # are ordinary in dev estates. Grouped by name, the two collapse into one row and one of
+        # them disappears from the very panel that exists to find it.
+        foreach ($item in @($definition.items | Where-Object { $_.content.query })) {
+            $item.content.query | Should -Not -Match 'by Machine\s*$'
+            $item.content.query | Should -Not -Match 'dcount\(Machine\)'
+        }
+    }
+
     It 'is loaded from the file rather than pasted into the template' {
         (Get-Content -Raw (Join-Path $deployRoot 'main.bicep')) |
             Should -Match "loadTextContent\('workbook\.json'\)"
+    }
+}
+
+Describe 'Pointing the context at the right subscription' {
+    # Not folded into Invoke-VmPowerPlan's Describe on purpose: that block stubs this function out,
+    # and a mock in scope would make every assertion here pass without running a line of it.
+    It 'leaves the context alone when the subscription is already the current one' {
+        InModuleScope AzureVMPowerManagement {
+            Mock -CommandName Get-AzContext -MockWith { [pscustomobject]@{ Subscription = [pscustomobject]@{ Id = 'sub-one' } } }
+            Mock -CommandName Set-AzContext -MockWith { }
+            Switch-VmPowerSubscriptionContext -SubscriptionId 'sub-one'
+            Should -Invoke Set-AzContext -Times 0
+        }
+    }
+
+    It 'switches when it is a different one' {
+        InModuleScope AzureVMPowerManagement {
+            Mock -CommandName Get-AzContext -MockWith { [pscustomobject]@{ Subscription = [pscustomobject]@{ Id = 'sub-one' } } }
+            Mock -CommandName Set-AzContext -MockWith { }
+            Switch-VmPowerSubscriptionContext -SubscriptionId 'sub-two'
+            Should -Invoke Set-AzContext -Times 1 -ParameterFilter { $Subscription -eq 'sub-two' }
+        }
+    }
+
+    It 'leaves the context alone for a plan built from a fixture, which carries no subscription' {
+        InModuleScope AzureVMPowerManagement {
+            Mock -CommandName Get-AzContext -MockWith { throw 'must not be asked' }
+            Mock -CommandName Set-AzContext -MockWith { }
+            Switch-VmPowerSubscriptionContext -SubscriptionId ''
+            Should -Invoke Set-AzContext -Times 0
+        }
+    }
+
+    It 'says what to do about it when the switch fails' {
+        InModuleScope AzureVMPowerManagement {
+            Mock -CommandName Get-AzContext -MockWith { [pscustomobject]@{ Subscription = [pscustomobject]@{ Id = 'sub-one' } } }
+            Mock -CommandName Set-AzContext -MockWith { throw 'no such subscription' }
+            { Switch-VmPowerSubscriptionContext -SubscriptionId 'sub-two' } |
+                Should -Throw -ExpectedMessage '*operator role in that subscription*'
+        }
     }
 }

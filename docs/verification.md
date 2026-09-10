@@ -76,9 +76,46 @@ Europe/Zurich, 2026:
   the two instants. Taken as-is and marked.
 - 07:30 local is 05:30 UTC in July and 06:30 UTC in December.
 
+## 2026-09-10 — the runbook end to end, against a simulated estate
+
+`tests/orchestrator/Invoke-OrchestratorScenarios.ps1`, driven by `tests/Orchestrator.Tests.ps1` in
+CI. Real module, real rules, real executor; Resource Graph, the Az power cmdlets, the Az context and
+the Automation asset store are stubs. Nothing reaches a network.
+
+The estate is deliberately awkward: **two subscriptions, each with a machine called `vm-app` in a
+resource group called `rg-shared`**, plus one always-on machine. Only the subscription tells the
+first two apart, and `Stop-AzVM` has no parameter for it.
+
+| Scenario | Result |
+|---|---|
+| Disarmed | 0 power calls, a decision recorded for all three machines, reasons not the word WhatIf |
+| Disarmed, `-MaximumActions 1` | run refused, nothing done — the blast radius is checked in a dry run too |
+| Armed | both `vm-app` machines deallocated, **one in each subscription** |
+| Armed again, minutes later | 0 power calls: held by the schedule's own 45 minute dwell, not the run-wide 30 |
+| Armed, memory aged past the window | 1 power call, the guard released |
+| `PM_LastActionAt` set to junk | run stopped with the variable named, 0 power calls |
+
+Three defects came out of this, none of which the 168 unit tests could see, because each half was
+correct on its own:
+
+- **Execution could not follow discovery across subscriptions.** The context was never switched, so
+  the second machine either failed as not found or - with the names reused - resolved to the first
+  subscription and deallocated the wrong machine.
+- **The dwell guard could not fire at all.** `Invoke-VmPowerPlan` needs `-LastActionAt` and the
+  runbook never passed it, so three documents described a guard with nothing to compare against.
+  The per-schedule `minimumDwellMinutes` was authored, validated, stored and read by nothing.
+- **The dwell store lost its time zone on the round trip.** `ConvertFrom-Json` returns a `DateTime`,
+  `[string]` on it drops the `Z`, and the store then aged by the local offset and pruned itself
+  empty one run after it was written.
+
 ## What is still unproved
 
 - The controller has never run **armed** on a schedule inside a sandbox. Every armed run so far was
   from a laptop.
 - No estate large enough to page Resource Graph has been seen.
-- Nothing has run for long enough for the minimum dwell to matter in production.
+- **`Set-AutomationVariable` has not been observed in the PowerShell 7.2 sandbox.** `Get-AutomationVariable`
+  has been, on a real job. The write is the half that carries the dwell memory, and it is written to
+  degrade rather than fail: if the cmdlet is missing or the write is refused, the run says
+  `Dwell: nothing remembered` and carries on. One armed job will settle it.
+- The multi-subscription path has been proved against stubs, not against two real subscriptions with
+  a machine of the same name in each.

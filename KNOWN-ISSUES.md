@@ -11,6 +11,16 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   schedule's `startGraceMinutes`. Until [ADR 0007](docs/decisions/0007-start-only-while-the-start-is-recent.md)
   it was restarted on the very next run, so the visible effect of shutting a machine down was that
   it rebooted - found in the lab on 2026-09-10, not by any test.
+- *(observed)* **A disarmed run fails when the blast radius is set too low.** Disarmed is the same
+  code path with `-WhatIf` on it, so every guard is evaluated - including the one that refuses a
+  whole run. A job that fails with `more than the N allowed` while `PM_Armed` is false has changed
+  nothing and is telling you the number is wrong at the only time that costs nothing. Raise
+  `PM_MaximumActions`, or look at what made the plan jump.
+- *(observed)* **A redeployment resets `PM_LastActionAt` to `{}`.** ARM has no create-if-absent, and
+  the variable has to exist before the runbook can write it, so the deployment ships it empty. The
+  first run after a redeployment therefore has no memory and the dwell guard stands down for that
+  run. The catalogue is unaffected - `PM_ScheduleCatalogCustom` is deliberately not created by the
+  deployment for exactly this reason.
 - *(observed)* **Deallocating releases a dynamic private IP address.** The stranded-machine rule is
   free of downtime risk because nothing is running, but a machine that comes back may not come back
   on the same address. Static addresses are unaffected. Verified against the documented behaviour of
@@ -94,6 +104,22 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   the bundle, not from importing a module at all.
 
 ## Sharp edges in the tooling itself
+
+- **An Az power cmdlet takes no subscription.** `Stop-AzVM` and `Start-AzVM` have `-ResourceGroupName`
+  and `-Name` and act in whatever subscription the current context points at; `Connect-AzAccount
+  -Identity` picks the first one it sees. Discovery has no such limit - one Resource Graph query
+  answers for every subscription the identity can read. Left alone the two halves disagree in
+  silence: a plan spanning three subscriptions fails on two of them, and where a resource group name
+  and a machine name are reused - which dev and test estates do constantly - the call resolves
+  against the wrong subscription and deallocates the wrong machine. The context is now pinned per
+  machine from the subscription on the plan. Found on 2026-09-10 by running the runbook end to end
+  against two simulated subscriptions; 168 unit tests had nothing to say about it.
+- **`ConvertFrom-Json` does not give back the string that went in.** It recognises an ISO-8601 value
+  and returns a `DateTime`, correctly zoned - and `[string]` on that `DateTime` renders the short
+  invariant form, without the `Z` and without the fractional seconds. `Kind` becomes `Unspecified`
+  and every reader downstream is free to call it local. That is how the dwell store aged itself by
+  the local offset and pruned entries that were seconds old. Timestamps are formatted with `'o'`
+  explicitly on the way through, and an unzoned value in that store is read as UTC.
 
 - **`switch ($true)` does not coerce the way `-eq` does.** `$true -eq 'some-string'` is `True`, but
   a case label of `('some-string')` never matches, because switch compares the case value against

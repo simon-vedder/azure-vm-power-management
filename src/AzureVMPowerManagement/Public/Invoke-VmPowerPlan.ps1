@@ -13,13 +13,20 @@ function Invoke-VmPowerPlan {
       Protected     A machine carrying the exclusion tag is never touched, whatever the plan says.
       Blast radius  A run that would act on more machines than -MaximumActions performs none of
                     them. A mistake broad enough to matter becomes a report, not an incident.
-      Dwell         A machine acted on within -MinimumDwellMinutes is left alone. Azure bills a
-                    five-minute minimum per start, so a flapping schedule costs money as well as
-                    being wrong.
+      Dwell         A machine this tool acted on within -MinimumDwellMinutes is left alone.
+                    Azure bills a five-minute minimum per start, so a flapping schedule costs money
+                    as well as being wrong. It needs -LastActionAt: with no memory of the previous
+                    run there is nothing to compare against, and the guard stands down.
 
     Deallocation is the only action version one performs, and it uses Stop-AzVM, which requests a
     graceful shutdown and then releases the host. A machine already in PowerState/stopped has no
     running operating system to shut down, so in practice this is a pure deallocate.
+
+    The Az context is pointed at each machine's own subscription before it is acted on. Stop-AzVM
+    and Start-AzVM take no subscription: they act wherever the context happens to point, while
+    discovery answers for every subscription the identity can read. Left alone, a plan spanning
+    three subscriptions fails on two of them - or worse, finds a machine of the same name in the
+    same resource group name somewhere else and deallocates that one instead.
 
     .PARAMETER Plan
     Decisions from Get-VmPowerPlan. Items with an action of None are counted and skipped.
@@ -29,11 +36,16 @@ function Invoke-VmPowerPlan {
     that is right for somebody else's estate, so this is mandatory.
 
     .PARAMETER MinimumDwellMinutes
-    Leave a machine alone if it changed power state more recently than this. Zero disables the check.
+    Leave a machine alone if this tool acted on it more recently than this. Zero switches the check
+    off entirely, whatever a schedule asks for. Above zero it is a floor: a schedule carrying its own
+    minimumDwellMinutes can ask for longer, never shorter. A guard the thing being guarded can
+    weaken is not a guard.
 
     .PARAMETER LastActionAt
-    Map of resource id to the time this tool last acted on it, for the dwell check. The runbook
-    passes what it recorded on the previous run.
+    Map of resource id to the time this tool last acted on it, for the dwell check. Values may be
+    DateTime or a round-trip string. Empty - the default - means there is no memory of a previous
+    run, and the dwell check has nothing to compare against. The runbook passes what it recorded in
+    the Automation variable PM_LastActionAt.
 
     .EXAMPLE
     # Preview everything an armed run would do, and change nothing
@@ -109,10 +121,31 @@ function Invoke-VmPowerPlan {
                 default { $null }
             }
 
-            if (-not $skip -and $MinimumDwellMinutes -gt 0 -and $LastActionAt.ContainsKey($item.Id)) {
-                $since = $now - ([datetime]$LastActionAt[$item.Id]).ToUniversalTime()
-                if ($since.TotalMinutes -lt $MinimumDwellMinutes) {
-                    $skip = "Acted on $([int]$since.TotalMinutes) minute(s) ago, inside the $MinimumDwellMinutes minute dwell"
+            # The run-wide setting is a floor, not the last word: a schedule whose machines take
+            # twenty minutes to come up may ask for a longer dwell than the default thirty. It
+            # cannot ask for a shorter one. Zero on the run-wide setting means off, and a schedule
+            # cannot turn it back on either - the operator's switch beats the author's.
+            $dwell = 0
+            if ($MinimumDwellMinutes -gt 0) {
+                $dwell = $MinimumDwellMinutes
+                if ($item.PSObject.Properties.Name -contains 'MinimumDwellMinutes' -and $null -ne $item.MinimumDwellMinutes) {
+                    $dwell = [Math]::Max($dwell, [int]$item.MinimumDwellMinutes)
+                }
+            }
+
+            if (-not $skip -and $dwell -gt 0 -and $LastActionAt.ContainsKey($item.Id)) {
+                # An unreadable timestamp leaves the machine alone and says so. Treating it as
+                # "no memory" would silently stand the guard down, which is the one outcome a
+                # corrupt safety store must not produce.
+                $lastUtc = $null
+                try { $lastUtc = ConvertTo-VmPowerUtcTime -Value $LastActionAt[$item.Id] }
+                catch { $skip = "The dwell store holds '$($LastActionAt[$item.Id])' for this machine, which is not a time. Nothing was done to it." }
+
+                if ($lastUtc) {
+                    $since = $now - $lastUtc
+                    if ($since.TotalMinutes -lt $dwell) {
+                        $skip = "Acted on $([int]$since.TotalMinutes) minute(s) ago, inside the $dwell minute dwell"
+                    }
                 }
             }
 
@@ -144,6 +177,7 @@ function Invoke-VmPowerPlan {
             }
 
             $status, $detail = try {
+                Switch-VmPowerSubscriptionContext -SubscriptionId ([string]$item.SubscriptionId)
                 switch ($item.Action) {
                     'Deallocate' {
                         $null = Stop-AzVM -ResourceGroupName $item.ResourceGroup -Name $item.Name -Force -ErrorAction Stop
