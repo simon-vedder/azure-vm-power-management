@@ -47,7 +47,7 @@ function Get-VmPowerScheduleOccurrence {
         [int]$Days = 14
     )
 
-    $tz = [System.TimeZoneInfo]::FindSystemTimeZoneById($Schedule.TimeZone)
+    $tz = Resolve-VmPowerTimeZone -Id $Schedule.TimeZone
 
     # A caller who writes [datetime]'2026-10-25T00:00:00Z' does not get a UTC value: PowerShell
     # converts it to the machine's local time and keeps Kind Local, so on a CEST laptop that is

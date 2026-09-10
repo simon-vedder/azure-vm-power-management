@@ -62,6 +62,13 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
 - *(observed)* **`Get-AutomationVariable` works in the PowerShell 7.2 runtime**, and every scalar
   setting resolved through it on the first real job: `Armed: False | MaximumActions: 25 | Dwell: 30
   min`, read from `PM_Armed`, `PM_MaximumActions` and `PM_MinimumDwellMinutes`. 2026-09-10.
+- *(observed)* **The Azure Automation PowerShell 7.2 sandbox runs on Windows Server 2019**, not on
+  Linux. Measured with a probe runbook on 2026-09-10: `Microsoft Windows 10.0.17763`, 141 time zones,
+  every one of them a Windows id. `Europe/Zurich` does not resolve there and neither does `Etc/UTC`;
+  `W. Europe Standard Time` and `UTC` do. Schedules therefore keep the id they were written with and
+  it is translated where it is used - .NET 6 carries the CLDR mapping in both directions. A
+  laptop-only measurement said the opposite and it reached a decision record before the first real
+  job caught it.
 - *(observed)* **The same variable has two shapes depending on how it is read.** Over ARM,
   `properties.value` is the raw JSON text. `Get-AutomationVariable` deserialises it first, so a JSON
   array arrives as objects. Code that reads a variable both ways - as this tool does, from a laptop

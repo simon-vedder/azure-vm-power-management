@@ -902,3 +902,47 @@ Describe 'The catalogue in an Automation Account' {
         }
     }
 }
+
+Describe 'Time zone ids across platforms' {
+    # A schedule is authored on a laptop and resolved inside an Automation sandbox, and those are
+    # not the same operating system. Measured on 2026-09-10 with a probe runbook: the PowerShell 7.2
+    # sandbox is Windows Server 2019 with 141 Windows time zone ids, where 'Europe/Zurich' and even
+    # 'Etc/UTC' do not resolve. An earlier version of this project claimed both forms worked there;
+    # that was measured on a Mac and generalised.
+    BeforeAll {
+        $Resolve = & $module { Get-Command Resolve-VmPowerTimeZone }
+    }
+
+    It 'resolves <_> whatever form this platform prefers' -ForEach @('Europe/Zurich', 'W. Europe Standard Time', 'UTC', 'Etc/UTC') {
+        $zone = & $Resolve -Id $_
+        $zone | Should -BeOfType [System.TimeZoneInfo]
+    }
+
+    It 'gives the same instant for the two names of one zone' {
+        # Europe/Zurich and W. Europe Standard Time are the same zone under two naming schemes.
+        $viaIana = & $Resolve -Id 'Europe/Zurich'
+        $viaWindows = & $Resolve -Id 'W. Europe Standard Time'
+        $local = [datetime]::new(2026, 7, 1, 7, 30, 0, [System.DateTimeKind]::Unspecified)
+        [System.TimeZoneInfo]::ConvertTimeToUtc($local, $viaIana) |
+            Should -Be ([System.TimeZoneInfo]::ConvertTimeToUtc($local, $viaWindows))
+    }
+
+    It 'says the id is wrong rather than in the wrong form' {
+        { & $Resolve -Id 'Middle-earth/Shire' } | Should -Throw -ExpectedMessage '*wrong rather than in the wrong form*'
+    }
+
+    It 'lets a schedule keep the id it was written with' {
+        # Not normalised on the way in: a catalogue authored on a Mac stays readable there, and the
+        # translation happens where it is used.
+        $s = New-VmPowerSchedule -Name portable -TimeZone 'Europe/Zurich' -Weekdays '07:30-18:30'
+        $s.TimeZone | Should -Be 'Europe/Zurich'
+    }
+
+    It 'produces the same calendar from either form' {
+        $iana = New-VmPowerSchedule -Name a-schedule -TimeZone 'Europe/Zurich' -Daily '07:30-18:30'
+        $windows = New-VmPowerSchedule -Name a-schedule -TimeZone 'W. Europe Standard Time' -Daily '07:30-18:30'
+        $from = [datetime]::new(2026, 7, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+        @(($iana | Show-VmPowerScheduleCalendar -FromUtc $from -Days 3).Utc) |
+            Should -Be @(($windows | Show-VmPowerScheduleCalendar -FromUtc $from -Days 3).Utc)
+    }
+}

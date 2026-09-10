@@ -45,8 +45,10 @@ function Expand-VmPowerSchedule {
 
     $timeZoneId = [string]$raw['timeZone']
     if (-not $timeZoneId) { throw "Schedule '$name' has no timeZone. There is no sensible default: a schedule without one is a schedule in somebody else's morning." }
-    try { $null = [System.TimeZoneInfo]::FindSystemTimeZoneById($timeZoneId) }
-    catch { throw "Schedule '$name' names the time zone '$timeZoneId', which this runtime cannot resolve. Both the Windows form ('W. Europe Standard Time') and the IANA form ('Europe/Zurich') work." }
+    # Resolved rather than looked up: the id is stored as written, and the two platforms this runs
+    # on know different forms. See Resolve-VmPowerTimeZone.
+    try { $null = Resolve-VmPowerTimeZone -Id $timeZoneId }
+    catch { throw "Schedule '$name': $($_.Exception.Message)" }
 
     # Shorthand first: weekdays '07:30-18:30' is the case almost everybody wants, and writing it as
     # two action entries by hand is how people end up with a stop and no start.
