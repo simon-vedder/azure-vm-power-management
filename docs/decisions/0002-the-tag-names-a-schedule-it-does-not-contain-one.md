@@ -121,9 +121,15 @@ several estates sharing one catalogue, and that is not this version.
 - `Test-VmPowerSchedule` becomes load-bearing. Every path into the catalogue goes through it, and its
   fixtures are part of the test suite rather than an afterthought.
 - Time zones accept both the Windows form (`W. Europe Standard Time`) and the IANA form
-  (`Europe/Zurich`). Both resolve on the Linux workers that run PowerShell 7.2 in Azure Automation,
-  and daylight saving is handled by the runtime — verified on 2026-09-10, 12:00 UTC converts to 14:00
-  in July and 13:00 in December.
+  (`Europe/Zurich`), and the id is stored as written rather than normalised. The two are translated
+  where they are used, because the platform that authors a schedule and the platform that runs it
+  are not the same one.
+
+  > **Corrected 2026-09-10.** This originally said both forms resolve "on the Linux workers that run
+  > PowerShell 7.2 in Azure Automation". That was measured on a Mac and generalised, and the first
+  > real runbook job disproved it. A probe runbook found the sandbox is **Windows Server 2019** with
+  > 141 Windows time zone ids, where `Europe/Zurich` does not resolve and neither does `Etc/UTC`.
+  > `Resolve-VmPowerTimeZone` translates using the CLDR mapping .NET 6 carries.
 - Migration from the old tags is a one-time job. `Get-VmPowerSchedule -FromLegacyTags` reads the five
   old tags across an estate, proposes catalogue entries that reproduce them, and reports the machines
   whose tags do not parse — which, on any estate that has been running a while, is the interesting
