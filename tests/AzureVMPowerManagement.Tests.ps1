@@ -1172,6 +1172,16 @@ Describe 'The runbook and the deployment' {
         $calls.Count | Should -BeGreaterThan 1
     }
 
+    It 'strips a prerelease suffix before stamping the content link' {
+        # Automation validates contentUri.version against System.Version and refuses anything else
+        # with "The contentUri.version property is of an invalid form or value" - which names a
+        # property nobody passed. moduleVersion is a SemVer, the Gallery wants the suffix, and
+        # System.Version cannot parse it. Deploying with moduleVersion=0.1.3-preview, the version
+        # the README calls published, failed for real on 2026-09-10.
+        $mainBicepText = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'deploy' 'main.bicep')
+        $mainBicepText | Should -Match "contentVersion: empty\(contentVersion\) \? split\(moduleVersion, '-'\)\[0\]"
+    }
+
     It 'writes every Automation variable as valid JSON' {
         # Automation refuses anything else with "Invalid JSON - Kindly check the value of the
         # variable". A bare word and ARM's String(false) both fail; four of eight did on the first

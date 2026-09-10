@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **A prerelease `moduleVersion` no longer breaks the deployment.** Automation validates
+  `contentUri.version` against `System.Version`, which cannot parse `0.1.3-preview`, so the module
+  import failed with `The contentUri.version property is of an invalid form or value` - an ARM error
+  naming a property nobody passed. The Gallery needs the suffix and the content link cannot have it,
+  so it comes off where the stamp is derived. Template only; the module is unchanged.
+
+### Verified
+
+- **0.1.3-preview ran armed in a real Automation Account**, deallocated a stranded machine, left the
+  untagged one alone, wrote its dwell memory and was held back by that memory on the next run. It is
+  the first armed run on a schedule inside a sandbox, and it settles `Set-AutomationVariable`. Full
+  log in [docs/verification.md](docs/verification.md).
+
 ## [0.1.3-preview] - 2026-09-10
 
 The first end-to-end run of the runbook itself, and the four defects it found.

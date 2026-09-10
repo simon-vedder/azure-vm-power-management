@@ -23,7 +23,7 @@ param logRetentionDays int = 90
 @description('AzureVMPowerManagement module version on the PowerShell Gallery.')
 param moduleVersion string
 
-@description('Version stamp written to the module and runbook content links, System.Version form (up to four numeric parts, e.g. 0.1.0.1). Defaults to moduleVersion; bump it to force Automation to re-import unchanged URIs.')
+@description('Version stamp written to the module and runbook content links, System.Version form (up to four numeric parts, e.g. 0.1.0.1). Defaults to moduleVersion with any prerelease suffix removed; bump it to force Automation to re-import unchanged URIs.')
 @minLength(0)
 param contentVersion string = ''
 
@@ -151,7 +151,13 @@ module automation 'modules/automation.bicep' = {
     tags: tags
     modulePackageUri: effectiveModuleUri
     runbookContentUri: runbookContentUri
-    contentVersion: empty(contentVersion) ? moduleVersion : contentVersion
+    // Automation validates this against System.Version and rejects anything else with "The
+    // contentUri.version property is of an invalid form or value" - an ARM error that names a
+    // property nobody passed. moduleVersion is a SemVer and may carry a prerelease suffix, which
+    // the Gallery needs and System.Version cannot parse, so the suffix comes off here. Passing
+    // moduleVersion=0.1.3-preview, which is what the README calls the published version, failed a
+    // real deployment on 2026-09-10.
+    contentVersion: empty(contentVersion) ? split(moduleVersion, '-')[0] : contentVersion
     importModule: importModule
     armed: armed
     maximumActions: maximumActions
