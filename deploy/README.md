@@ -33,16 +33,17 @@ first value while the redeployment reports success.
 |---|---|---|
 | `PM_Armed` | `false` | Whether the plan is performed or only reported |
 | `PM_MaximumActions` | from `maximumActions` | Refuse the whole run above this many machines |
-| `PM_MinimumDwellMinutes` | `30` | Leave a machine alone this long after acting on it |
+| `PM_MinimumDwellMinutes` | `30` | Leave a machine alone this long after acting on it. Needs `PM_LastActionAt`; a schedule may ask for longer |
 | `PM_IncludeUntagged` | `false` | Act on machines with no schedule tag |
 | `PM_ScheduleTag` | `PowerSchedule` | Tag key whose value names a schedule |
 | `PM_ExclusionTag` | `PowerSchedule-Exclude` | Tag key that protects a machine from every rule |
 | `PM_SubscriptionId` | empty | Narrow discovery; empty means everything the identity reads |
 | `PM_ScheduleCatalog` | the examples | **Owned by the deployment. Overwritten every time.** |
 | `PM_ScheduleCatalogCustom` | not created | Owned by `Set-VmPowerSchedule`. Never touched here. |
+| `PM_LastActionAt` | `{}` | What the runbook last acted on and when. Written by the runbook, reset by a redeployment. |
 
-The split between the last two is deliberate and is the reason a redeployment cannot eat somebody's
-schedule — see [ADR 0005](../docs/decisions/0005-json-is-the-storage-format-not-the-authoring-format.md).
+The split between `PM_ScheduleCatalog` and `PM_ScheduleCatalogCustom` is deliberate and is the reason
+a redeployment cannot eat somebody's schedule — see [ADR 0005](../docs/decisions/0005-json-is-the-storage-format-not-the-authoring-format.md).
 
 ## What it creates
 

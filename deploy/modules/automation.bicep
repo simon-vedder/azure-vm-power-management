@@ -180,6 +180,15 @@ var settings = [
     value: string(scheduleCatalog)
     description: 'The schedules that ship with this deployment. Overwritten on every deployment - put your own in PM_ScheduleCatalogCustom.'
   }
+  {
+    // Created here because Set-AutomationVariable can write a variable but cannot create one, and
+    // writing it from the runbook over ARM would mean giving the identity write access to its own
+    // Automation Account. The cost of that choice is here in plain sight: a redeployment resets
+    // this to {}, so the first run after one has no memory and the dwell guard stands down for it.
+    name: 'PM_LastActionAt'
+    value: '{}'
+    description: 'What the runbook last acted on and when, as resource id to timestamp. This is the whole of the dwell guard: without it PM_MinimumDwellMinutes has nothing to compare against. Written by the runbook at the end of an armed run, pruned to the longest dwell in use. Reset to {} to forget.'
+  }
 ]
 
 resource settingVariables 'Microsoft.Automation/automationAccounts/variables@2023-11-01' = [

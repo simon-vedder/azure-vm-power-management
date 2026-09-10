@@ -36,9 +36,9 @@ function Resolve-VmPowerAction {
 
     .PARAMETER ScheduleState
     Desired state per schedule name, as Get-VmPowerScheduleState works it out: State, how many
-    minutes ago the schedule last acted, and the schedule's start grace. Computed once per schedule
-    by the caller rather than per machine, because a thousand machines usually share a handful of
-    schedules.
+    minutes ago the schedule last acted, the schedule's start grace and its minimum dwell. Computed
+    once per schedule by the caller rather than per machine, because a thousand machines usually
+    share a handful of schedules.
 
     .PARAMETER IncludeUntagged
     Allow a decision on a machine carrying no schedule tag. Off by default, because opt-in is the
@@ -147,20 +147,29 @@ function Resolve-VmPowerAction {
         }
     }
 
+    # The schedule's own dwell travels with the decision, because the executor is the only place
+    # that can compare it against the run-wide setting. Without it, the minimumDwellMinutes a
+    # schedule author writes is a field that validates, stores and is never read.
+    $scheduleDwell = 0
+    if ($schedule -and $ScheduleState.ContainsKey($schedule)) {
+        $scheduleDwell = [int](Get-PropertyOrDefault -InputObject $ScheduleState[$schedule] -Name 'MinimumDwellMinutes' -Default 0)
+    }
+
     [pscustomobject]@{
-        PSTypeName      = $script:TypeName.Plan
-        Id              = $id
-        Name            = $name
-        ResourceGroup   = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'resourceGroup' -Default '')
-        SubscriptionId  = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'subscriptionId' -Default '')
-        Location        = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'location' -Default '')
-        VmSize          = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'vmSize' -Default '')
-        PowerState      = $powerState
-        Schedule        = if ($schedule) { $schedule } else { '' }
-        Action          = $action
-        Reason          = $reason
-        Explanation     = $explanation
-        Protected       = [bool]$excluded
-        ProtectedReason = if ($excluded) { "Excluded by the $ExclusionTag tag" } else { '' }
+        PSTypeName          = $script:TypeName.Plan
+        Id                  = $id
+        Name                = $name
+        ResourceGroup       = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'resourceGroup' -Default '')
+        SubscriptionId      = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'subscriptionId' -Default '')
+        Location            = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'location' -Default '')
+        VmSize              = [string](Get-PropertyOrDefault -InputObject $Machine -Name 'vmSize' -Default '')
+        PowerState          = $powerState
+        Schedule            = if ($schedule) { $schedule } else { '' }
+        Action              = $action
+        Reason              = $reason
+        MinimumDwellMinutes = $scheduleDwell
+        Explanation         = $explanation
+        Protected           = [bool]$excluded
+        ProtectedReason     = if ($excluded) { "Excluded by the $ExclusionTag tag" } else { '' }
     }
 }

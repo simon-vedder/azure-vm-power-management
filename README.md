@@ -78,8 +78,14 @@ Automation Schedule (hourly)
          └─ record                    every decision and every skip, with the reason
 ```
 
-Nothing about a machine is stored anywhere. Membership is recomputed from tags on every run, so a
-machine created at 11:00 is managed at 12:00 and one deleted at 13:00 stops mattering at 14:00.
+Membership is not stored. It is recomputed from tags on every run, so a machine created at 11:00 is
+managed at 12:00 and one deleted at 13:00 stops mattering at 14:00. The one thing the controller does
+remember is what it touched and when, which is what the dwell guard compares against.
+
+Discovery spans every subscription the identity can read, and so does execution: `Stop-AzVM` takes no
+subscription of its own, so the context is pointed at each machine's before it is touched. Without
+that, two dev subscriptions holding a `vm-app` in an `rg-shared` are one machine as far as Azure is
+concerned, and the wrong one gets deallocated.
 
 | Machine is | Schedule wants it up | Schedule wants it down |
 |---|---|---|
@@ -116,10 +122,13 @@ one edit in the portal, not a redeployment.
 
 - **Opt-in, never opt-out.** No tag, never touched. There is no "manage this whole subscription" switch.
 - **Blast radius.** A run that would act on more machines than you allowed performs none of them and
-  says so. A bad catalogue edit becomes a report, not an incident.
+  says so. A bad catalogue edit becomes a report, not an incident. A disarmed run checks it too, so
+  a number set too low fails a job in week one rather than on the day somebody arms it.
 - **Deallocate, never Stop**, always with a graceful shutdown. Force is an explicit opt-in.
-- **Minimum dwell.** Azure bills a five-minute minimum per start, so a schedule that flaps costs money
-  as well as being wrong.
+- **Minimum dwell.** A machine acted on within the window is left alone. Azure bills a five-minute
+  minimum per start, so a schedule that flaps costs money as well as being wrong. The controller
+  remembers what it touched in the Automation variable `PM_LastActionAt`; a schedule can ask for a
+  longer dwell than the deployment's default, never a shorter one.
 - **Every skip is recorded with its reason**, so "why didn't it stop last night" has an answer.
 - **An exclusion tag beats every rule**, whatever else is true.
 
@@ -170,8 +179,8 @@ and how to run it.
 
 ## Status
 
-Pre-release `0.1.0-preview`. What is verified is in [docs/verification.md](docs/verification.md);
-what is not is in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
+Pre-release `0.1.2-preview` on the Gallery. What is verified is in
+[docs/verification.md](docs/verification.md); what is not is in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
 ## Documentation
 

@@ -11,6 +11,11 @@ It ships disarmed. -Armed defaults to false, so a deployed schedule discovers, d
 everything while changing nothing. Read a week of that before arming it - see
 docs/decisions/0004-eager-to-start-reluctant-to-stop.md.
 
+Disarmed is the same code path with -WhatIf on it, not a second one. Every guard is evaluated, so a
+blast radius set too low fails the job in week one rather than at the moment somebody arms it. A
+disarmed job that fails on "more than the N allowed" is the tool telling you the number is wrong
+while nothing is at stake.
+
 Discovery reaches every subscription the managed identity can read in one Resource Graph call, so
 -SubscriptionId is a narrowing option rather than a requirement. All optional flags are [bool]
 instead of [switch] because the Automation "Start runbook" dialog cannot populate switch parameters.
@@ -27,7 +32,10 @@ somebody else's estate: without this and without the Automation variable PM_Maxi
 run refuses rather than picking one.
 
 .PARAMETER MinimumDwellMinutes
-Leave a machine alone if this runbook acted on it more recently than this.
+Leave a machine alone if this runbook acted on it more recently than this. The memory lives in the
+Automation variable PM_LastActionAt, which this runbook writes at the end of an armed run - without
+it there is nothing to compare against and the guard cannot fire. Zero switches the check off. A
+schedule carrying its own minimumDwellMinutes can ask for longer, never shorter.
 
 .PARAMETER IncludeUntagged
 Also act on machines carrying no schedule tag. Off by default: opt-in is the rule. Untagged machines
@@ -199,7 +207,9 @@ $null = Connect-AzAccount @connect
 
 # With roles in more than one subscription, Connect-AzAccount -Identity picks the first it sees as
 # the context. Resource Graph does not care - it answers for everything the identity reads - but
-# Stop-AzVM does, so the context is pinned per machine by resource group rather than assumed here.
+# Stop-AzVM does, and takes no subscription of its own. The module pins the context per machine
+# from the subscription on the plan, in Switch-VmPowerSubscriptionContext; this comment used to
+# claim that happened here, and it happened nowhere.
 $scope = if ($SubscriptionId) { $SubscriptionId -join ', ' } else { 'every readable subscription' }
 Write-Output "Scope: $scope | Armed: $Armed | MaximumActions: $MaximumActions | Dwell: $MinimumDwellMinutes min"
 
@@ -222,6 +232,98 @@ function ConvertTo-CatalogArray {
         return @($Value | ConvertFrom-Json -ErrorAction Stop)
     }
     @($Value)
+}
+
+# PM_LastActionAt is this runbook's memory of what it touched and when. It is the whole of the
+# dwell guard: with no memory there is nothing to compare against, and -MinimumDwellMinutes is a
+# number in a help file. Same two shapes as the catalogue - text over ARM, an object through
+# Get-AutomationVariable.
+function ConvertTo-ActionMemory {
+    param([Parameter()][AllowNull()]$Value)
+
+    $memory = @{}
+    if ($null -eq $Value) { return $memory }
+
+    $object = $Value
+    if ($Value -is [string]) {
+        if (-not $Value.Trim()) { return $memory }
+        try { $object = $Value | ConvertFrom-Json -ErrorAction Stop }
+        catch {
+            # Not swallowed. Treating an unreadable memory as an empty one stands the guard down
+            # without saying so, and the fix is one edit.
+            throw ("The Automation variable PM_LastActionAt does not hold readable JSON, so the " +
+                'dwell guard has nothing to work from. Set it to {} to start again. ' +
+                $_.Exception.Message)
+        }
+    }
+
+    if ($object -is [System.Collections.IDictionary]) {
+        foreach ($key in @($object.Keys)) { $memory[[string]$key] = ConvertTo-MemoryStamp -Value $object[$key] }
+    }
+    else {
+        foreach ($property in @($object.PSObject.Properties)) { $memory[$property.Name] = ConvertTo-MemoryStamp -Value $property.Value }
+    }
+    $memory
+}
+
+# ConvertFrom-Json does not hand back the string that went in. It recognises an ISO-8601 value and
+# returns a DateTime, correctly zoned - and then [string] on that DateTime renders it in the short
+# invariant format, without the Z and without the seconds' fraction. The zone is gone, Kind becomes
+# Unspecified, and every reader downstream is free to guess local. That guess moved the dwell window
+# by the local offset and pruned a store that was seconds old; found on 2026-09-10 by running the
+# runbook end to end rather than by any unit test. Formatted explicitly here so the round trip is
+# lossless whichever shape the variable arrived in.
+function ConvertTo-MemoryStamp {
+    param([Parameter()][AllowNull()]$Value)
+    if ($Value -is [datetime]) { return ([datetime]$Value).ToUniversalTime().ToString('o') }
+    [string]$Value
+}
+
+# Written back through the sandbox's own asset cmdlet rather than over ARM, so the identity needs
+# no permission on its own Automation Account. Set-AutomationVariable cannot create a variable, so
+# the deployment ships PM_LastActionAt with {} in it.
+function Save-ActionMemory {
+    param(
+        [Parameter(Mandatory)][hashtable]$Memory,
+        [Parameter(Mandatory)][int]$KeepMinutes
+    )
+
+    # An entry older than the longest dwell in play can never change a decision again, so the
+    # variable stays roughly the size of one busy day rather than growing for the life of the
+    # deployment. The cap is the backstop: an Automation variable holds a megabyte.
+    $cutoff = [datetime]::UtcNow.AddMinutes(-$KeepMinutes)
+    $kept = [ordered]@{}
+    foreach ($entry in ($Memory.GetEnumerator() | Sort-Object { $_.Value } -Descending)) {
+        if ($kept.Count -ge 4000) { break }
+        $when = [datetime]::MinValue
+        if (-not [datetime]::TryParse($entry.Value, [cultureinfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$when)) { continue }
+        # Unspecified means UTC here, for the same reason the module reads it that way: everything
+        # that writes this store writes UTC, and assuming local silently ages every entry by the
+        # offset - which on a machine an hour ahead deletes a store that was written seconds ago.
+        if ($when.Kind -eq [System.DateTimeKind]::Unspecified) {
+            $when = [datetime]::SpecifyKind($when, [System.DateTimeKind]::Utc)
+        }
+        if ($when.ToUniversalTime() -lt $cutoff) { continue }
+        $kept[$entry.Key] = $entry.Value
+    }
+
+    if (-not (Get-Command -Name Set-AutomationVariable -ErrorAction SilentlyContinue)) {
+        Write-Output ('Dwell: nothing remembered. Set-AutomationVariable is not available here, so ' +
+            'the next run has no memory and the dwell guard will not fire.')
+        return
+    }
+
+    try {
+        Set-AutomationVariable -Name 'PM_LastActionAt' -Value (ConvertTo-Json -InputObject $kept -Depth 2 -Compress)
+        Write-Output "Dwell: remembered $($kept.Count) machine(s) in PM_LastActionAt."
+    }
+    catch {
+        # Not fatal. The work is done; only the memory of it is lost, and saying so is better than
+        # failing a run that already deallocated machines correctly.
+        Write-Output ('Dwell: could not write PM_LastActionAt, so the next run has no memory - ' +
+            $_.Exception.Message)
+    }
 }
 
 if (-not $ScheduleCatalog) {
@@ -250,6 +352,9 @@ if ($ScheduleCatalog) {
 else {
     Write-Output 'Catalogue: none. Only the stranded-machine rule applies.'
 }
+
+$memory = ConvertTo-ActionMemory -Value (Get-Setting -Name 'PM_LastActionAt')
+Write-Output "Dwell: $MinimumDwellMinutes min, $($memory.Count) machine(s) remembered from earlier runs"
 
 $planArgs = @{ IncludeUntagged = $IncludeUntagged }
 if ($catalog.Count) { $planArgs['Schedule'] = $catalog }
@@ -296,24 +401,47 @@ function Write-Record {
     Write-Output "[$($Item.Name)] $($Item.Action) - $Status`: $Detail"
 }
 
-if (-not $Armed) {
-    # Disarmed is not a different code path: the same plan is printed instead of performed, so what
-    # a first week reports is exactly what arming it would have done.
-    foreach ($item in $plan) {
-        Write-Record -Item $item -Status $item.Reason -Detail $item.Explanation
-        Add-Summary $item.Reason
-        $item
-    }
+$byId = @{}
+foreach ($item in $plan) { $byId[[string]$item.Id] = $item }
+
+# Disarmed is not a different code path. It is the same call with -WhatIf on it, so every guard is
+# evaluated either way and a first week reports what arming it would have done - including a run it
+# would have refused for exceeding the blast radius, which is worth finding while nothing is at
+# stake rather than at the moment somebody sets PM_Armed to true.
+$execute = @{
+    MaximumActions      = $MaximumActions
+    MinimumDwellMinutes = $MinimumDwellMinutes
+    LastActionAt        = $memory
+    Confirm             = $false
 }
-else {
-    $byId = @{}
-    foreach ($item in $plan) { $byId[[string]$item.Id] = $item }
-    foreach ($result in ($plan | Invoke-VmPowerPlan -MaximumActions $MaximumActions -MinimumDwellMinutes $MinimumDwellMinutes -Confirm:$false)) {
-        $source = if ($byId.ContainsKey([string]$result.Id)) { $byId[[string]$result.Id] } else { $result }
-        Write-Record -Item $source -Status $result.Status -Detail $result.Detail
-        Add-Summary $result.Status
-        $result
+if (-not $Armed) { $execute['WhatIf'] = $true }
+
+$acted = @{}
+foreach ($result in ($plan | Invoke-VmPowerPlan @execute)) {
+    $source = if ($byId.ContainsKey([string]$result.Id)) { $byId[[string]$result.Id] } else { $result }
+
+    # A guard that fired is the interesting half of a dry run, and its own word for it - Skipped,
+    # Failed - is what belongs in the record. Where none fired, the plan's reason says more than
+    # the word WhatIf ever could.
+    $noGuardFired = $result.Status -eq 'WhatIf' -or $source.Action -eq 'None'
+    $status = if ($noGuardFired -and $source.Reason) { [string]$source.Reason } else { [string]$result.Status }
+
+    Write-Record -Item $source -Status $status -Detail $result.Detail
+    Add-Summary $status
+    if ($result.Status -eq 'Done') { $acted[[string]$result.Id] = ([datetime]$result.Timestamp).ToUniversalTime().ToString('o') }
+
+    if ($Armed) { $result } else { $source }
+}
+
+if ($Armed) {
+    foreach ($id in $acted.Keys) { $memory[$id] = $acted[$id] }
+    # Kept for as long as the longest dwell anyone asked for, and never less than an hour, so the
+    # variable stays bounded whatever the settings say.
+    $keepMinutes = $MinimumDwellMinutes
+    foreach ($entry in $catalog) {
+        if ([int]$entry.MinimumDwellMinutes -gt $keepMinutes) { $keepMinutes = [int]$entry.MinimumDwellMinutes }
     }
+    Save-ActionMemory -Memory $memory -KeepMinutes ([Math]::Max($keepMinutes, 60))
 }
 
 Write-Output ('Summary: ' + $(if ($summary.Count) {

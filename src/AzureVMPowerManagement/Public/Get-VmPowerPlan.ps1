@@ -119,6 +119,9 @@ function Get-VmPowerPlan {
         }
         $desired = Get-VmPowerScheduleState -Schedule $expanded -AtUtc $AtUtc
         $desired | Add-Member -NotePropertyName 'StartGraceMinutes' -NotePropertyValue $expanded.StartGraceMinutes -Force
+        # Carried onto every decision so the executor can honour a schedule's own dwell. Without
+        # this, New-VmPowerSchedule -MinimumDwellMinutes is a field nothing reads.
+        $desired | Add-Member -NotePropertyName 'MinimumDwellMinutes' -NotePropertyValue $expanded.MinimumDwellMinutes -Force
         $state[$expanded.Name] = $desired
         Write-Verbose "Schedule '$($expanded.Name)' wants machines $($desired.State) at $AtUtc, last action $($desired.MinutesSince) minute(s) ago."
     }

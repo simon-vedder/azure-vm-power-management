@@ -5,7 +5,45 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Execution now follows discovery across subscriptions.** One Resource Graph query answers for
+  every subscription the identity can read, but `Stop-AzVM` and `Start-AzVM` take no subscription
+  and act wherever the context points. A plan spanning several subscriptions failed on all but one
+  of them - and where a resource group name and a machine name are reused, which dev estates do
+  constantly, it resolved against the wrong subscription and deallocated the wrong machine. The
+  context is pinned per machine from the plan; a subscription that cannot be reached fails that
+  machine and no other.
+- **The minimum dwell guard can fire.** `Invoke-VmPowerPlan` needs `-LastActionAt` and the runbook
+  never passed it, so the guard described in the README, the runbook help and the command reference
+  had nothing to compare against and stood down on every run. The controller now keeps what it
+  touched in a new Automation variable, `PM_LastActionAt`.
+- **A schedule's own `minimumDwellMinutes` is read.** It was authored by `New-VmPowerSchedule`,
+  validated, stored, and shipped in the default catalogue - and no rule ever looked at it. It now
+  travels with the decision, and the executor takes the longer of it and the run-wide setting. A
+  schedule can ask for more caution, never less; zero on the run-wide setting still means off.
+- **A timestamp survives the round trip through an Automation variable.** `ConvertFrom-Json` hands
+  an ISO-8601 value back as a `DateTime` and `[string]` on that drops the `Z`, so the dwell store
+  aged itself by the local offset and pruned entries that were seconds old.
+- **The workbook no longer treats a machine name as an identity.** Two subscriptions with a
+  resource group of the same name and a machine of the same name collapsed into one row, in the
+  panel that exists to find exactly those machines.
+- The command reference said `0.1.0-preview` and the README's status said the same; both are
+  regenerated from the manifest.
+
+### Changed
+
+- **Disarmed is the same code path with `-WhatIf` on it**, not a second one. Every guard is now
+  evaluated in a dry run, so a blast radius set too low fails a job in week one instead of on the
+  day somebody arms it, and a machine held back by a guard appears in the report with the guard's
+  own word for it.
+
 ### Added
+
+- **An end-to-end exercise of the runbook**, in `tests/orchestrator`, run by CI. Real module, real
+  rules, real executor; Azure and the Automation asset store are stubs. The estate has two
+  subscriptions holding a machine of the same name in a resource group of the same name. Every
+  defect above came out of it and none was visible to the 168 unit tests beside it.
 
 - **A workbook that shows what the controller decided and why.** It reads the runbook's own job
   streams, so there is no data collection rule, no custom table and nothing that can disagree with
