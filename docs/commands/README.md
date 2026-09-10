@@ -6,7 +6,7 @@ Decides which Azure VMs should be off, proves what that saved, and delegates the
 
 | | |
 |---|---|
-| Module version | 0.1.2-preview |
+| Module version | 0.1.3-preview |
 | PowerShell | 7.2+ (Core) |
 | Required modules | `Az.Accounts` 2.15.0+, `Az.Compute` 7.1.1+ |
 | Getting it | `Install-Module AzureVMPowerManagement`, or let the deployment pull it at the pinned version |
