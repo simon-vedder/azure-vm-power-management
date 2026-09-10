@@ -22,6 +22,9 @@
     FunctionsToExport    = @(
         'Get-VmPowerPlan'
         'Invoke-VmPowerPlan'
+        'New-VmPowerSchedule'
+        'Show-VmPowerScheduleCalendar'
+        'Test-VmPowerSchedule'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

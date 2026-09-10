@@ -29,6 +29,9 @@ The commands the runbook calls, and the same ones you can run locally after Inst
 |---|---|
 | [Get-VmPowerPlan](Get-VmPowerPlan.md) | Work out what should happen to the virtual machines in scope, and change nothing |
 | [Invoke-VmPowerPlan](Invoke-VmPowerPlan.md) | Carry out a plan, after the guards agree to it |
+| [New-VmPowerSchedule](New-VmPowerSchedule.md) | Build a schedule from parameters instead of writing the JSON by hand |
+| [Show-VmPowerScheduleCalendar](Show-VmPowerScheduleCalendar.md) | Print the next few days of a schedule, so a mistake is something you read rather than survive |
+| [Test-VmPowerSchedule](Test-VmPowerSchedule.md) | Check a schedule or a whole catalogue, and report what is wrong rather than throwing |
 
 ---
 

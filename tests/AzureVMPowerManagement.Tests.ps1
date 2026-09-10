@@ -60,7 +60,14 @@ Describe 'Module' {
     BeforeDiscovery {
         $publicFolder = Join-Path $PSScriptRoot '..' 'src' 'AzureVMPowerManagement' 'Public'
         $publicFunctions = @(Get-ChildItem -Path $publicFolder -Filter '*.ps1' -File | ForEach-Object BaseName | Sort-Object)
-        $stateChanging = @($publicFunctions | Where-Object { ($_ -split '-')[0] -in 'Remove', 'Set', 'New', 'Start', 'Stop', 'Restore', 'Update', 'Clear', 'Disable', 'Enable', 'Invoke' })
+        # A state-changing verb is not the same as changing state: New-VmPowerSchedule builds an
+        # object in memory. The help already declares which is which, so the promise in the help is
+        # what this reads rather than a second list that would drift from it.
+        $stateChanging = @(
+            $publicFunctions |
+                Where-Object { ($_ -split '-')[0] -in 'Remove', 'Set', 'New', 'Start', 'Stop', 'Restore', 'Update', 'Clear', 'Disable', 'Enable', 'Invoke' } |
+                Where-Object { (Get-Content -Path (Join-Path $publicFolder "$_.ps1") -Raw) -notmatch 'Writes:\s*Nothing' }
+        )
     }
 
     It 'has a valid manifest' {
@@ -354,5 +361,159 @@ Describe 'Invoke-VmPowerPlan' {
             ($result | Where-Object Name -eq 'vm-bad').Detail | Should -Match 'OperationNotAllowed'
             ($result | Where-Object Name -eq 'vm-good').Status | Should -Be 'Done'
         }
+    }
+}
+
+Describe 'New-VmPowerSchedule' {
+    It 'compiles the weekday shorthand into a start and a stop' {
+        # Writing two action entries by hand is how people end up with a stop and no start.
+        $s = New-VmPowerSchedule -Name office-hours-ch -TimeZone 'Europe/Zurich' -Weekdays '07:30-18:30'
+        @($s.Actions).Count | Should -Be 2
+        ($s.Actions | Where-Object Action -eq 'Start').At | Should -Be '07:30'
+        ($s.Actions | Where-Object Action -eq 'Deallocate').At | Should -Be '18:30'
+        @($s.Actions[0].WeekDays) | Should -Be @('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')
+    }
+
+    It 'gives the daily shorthand all seven days' {
+        $s = New-VmPowerSchedule -Name lab -TimeZone 'UTC' -Daily '08:00-20:00'
+        @($s.Actions[0].WeekDays).Count | Should -Be 7
+    }
+
+    It 'makes a schedule with no stop, which is managed but never stopped' {
+        # Better than leaving a machine untagged: untagged is indistinguishable from forgotten.
+        $s = New-VmPowerSchedule -Name always-on -TimeZone 'UTC' -Start '06:00'
+        @($s.Actions).Count | Should -Be 1
+        $s.Actions[0].Action | Should -Be 'Start'
+    }
+
+    It 'pads a single-digit hour so two ways of writing the same time compare equal' {
+        (New-VmPowerSchedule -Name lab -TimeZone 'UTC' -Start '6:05').Actions[0].At | Should -Be '06:05'
+    }
+
+    It 'accepts a time zone in either the Windows or the IANA form' {
+        # Both resolve on the Linux workers that run PowerShell 7.2 in Azure Automation.
+        { New-VmPowerSchedule -Name a-schedule -TimeZone 'W. Europe Standard Time' -Start '06:00' } | Should -Not -Throw
+        { New-VmPowerSchedule -Name a-schedule -TimeZone 'Europe/Zurich' -Start '06:00' } | Should -Not -Throw
+    }
+
+    Context 'what it refuses' {
+        It 'refuses the name <_> because it is also a tag value and a policy allowedValues entry' -ForEach @('Office-Hours', 'ab', 'has spaces', '-leading', 'trailing-') {
+            { New-VmPowerSchedule -Name $_ -TimeZone 'UTC' -Start '06:00' } | Should -Throw -ExpectedMessage '*not usable*'
+        }
+
+        It 'refuses a time zone this runtime cannot resolve, and names both accepted forms' {
+            { New-VmPowerSchedule -Name lab -TimeZone 'Middle-earth/Shire' -Start '06:00' } |
+                Should -Throw -ExpectedMessage '*Europe/Zurich*'
+        }
+
+        It 'refuses the malformed time <_>' -ForEach @('25:00', '07:60', '0730', 'half eight') {
+            { New-VmPowerSchedule -Name lab -TimeZone 'UTC' -Start $_ } | Should -Throw
+        }
+
+        It 'refuses a span that is not HH:mm-HH:mm' {
+            { New-VmPowerSchedule -Name lab -TimeZone 'UTC' -Weekdays '7-18' } | Should -Throw -ExpectedMessage "*not 'HH:mm-HH:mm'*"
+        }
+
+        It 'refuses an exception date that is not yyyy-MM-dd' {
+            { New-VmPowerSchedule -Name lab -TimeZone 'UTC' -Start '06:00' -ExceptDate '24.12.2026' } |
+                Should -Throw -ExpectedMessage '*Expected yyyy-MM-dd*'
+        }
+    }
+}
+
+Describe 'Test-VmPowerSchedule' {
+    It 'reports every problem instead of stopping at the first' {
+        # Somebody validating twelve schedules wants twelve answers.
+        $catalog = @(
+            @{ name = 'good-one'; timeZone = 'UTC'; weekdays = '07:00-19:00' }
+            @{ name = 'BadName'; timeZone = 'UTC'; weekdays = '07:00-19:00' }
+            @{ name = 'bad-zone'; timeZone = 'Nowhere/Here'; weekdays = '07:00-19:00' }
+        )
+        $results = @($catalog | Test-VmPowerSchedule)
+        $results.Count | Should -Be 3
+        @($results | Where-Object Valid).Count | Should -Be 1
+        @($results | Where-Object { -not $_.Valid }).Count | Should -Be 2
+    }
+
+    It 'catches a duplicate name, which no schema check would' {
+        # The second entry silently wins, and nobody can see which of the two is running.
+        $catalog = @(
+            @{ name = 'office-hours'; timeZone = 'UTC'; weekdays = '07:00-19:00' }
+            @{ name = 'office-hours'; timeZone = 'UTC'; weekdays = '08:00-20:00' }
+        )
+        $results = @($catalog | Test-VmPowerSchedule)
+        $results[1].Valid | Should -BeFalse
+        $results[1].Problem | Should -Match 'Duplicate name'
+    }
+
+    It 'never throws, whatever it is handed' {
+        { @{ nonsense = $true } | Test-VmPowerSchedule } | Should -Not -Throw
+    }
+
+    It 'returns the expanded schedule with -Detailed' {
+        $r = @{ name = 'lab'; timeZone = 'UTC'; weekdays = '07:00-19:00' } | Test-VmPowerSchedule -Detailed
+        @($r.Schedule.Actions).Count | Should -Be 2
+    }
+}
+
+Describe 'Show-VmPowerScheduleCalendar' {
+    BeforeAll {
+        function Get-Utc { param([int]$y, [int]$m, [int]$d) [datetime]::new($y, $m, $d, 0, 0, 0, [System.DateTimeKind]::Utc) }
+    }
+
+    It 'converts a local time to the right instant on both sides of the year' {
+        # 07:30 in Zurich is 05:30 UTC in summer and 06:30 UTC in winter. Getting this wrong by an
+        # hour is the single most likely way for a power schedule to be quietly useless.
+        $s = New-VmPowerSchedule -Name office-hours-ch -TimeZone 'Europe/Zurich' -Daily '07:30-18:30'
+        $summer = @($s | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 7 1) -Days 1 | Where-Object Action -eq 'Start')
+        $winter = @($s | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 12 1) -Days 1 | Where-Object Action -eq 'Start')
+        $summer[0].Utc.ToString('HH:mm') | Should -Be '05:30'
+        $winter[0].Utc.ToString('HH:mm') | Should -Be '06:30'
+    }
+
+    It 'shifts an action out of the spring gap rather than throwing' {
+        # 02:30 does not exist on 29 March 2026 in Zurich, and ConvertTimeToUtc throws on it.
+        # Unhandled, that takes the runbook down once a year at half past two.
+        $s = New-VmPowerSchedule -Name nightly -TimeZone 'Europe/Zurich' -Days Sunday -Start '02:30'
+        $occurrence = @($s | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 3 29) -Days 1)[0]
+        $occurrence.LocalTime.ToString('HH:mm') | Should -Be '03:00'
+        $occurrence.Note | Should -Match 'gap'
+    }
+
+    It 'marks the doubled autumn hour instead of smoothing it away' {
+        $s = New-VmPowerSchedule -Name nightly -TimeZone 'Europe/Zurich' -Days Sunday -Start '02:30'
+        $occurrence = @($s | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 10 25) -Days 1)[0]
+        $occurrence.Utc.ToString('HH:mm') | Should -Be '01:30'
+        $occurrence.Note | Should -Match 'twice'
+    }
+
+    It 'treats a local datetime as local rather than relabelling it' {
+        # [datetime]'2026-10-25T00:00:00Z' is not a UTC value: PowerShell converts it to the
+        # machine's local time and keeps Kind Local. Relabelling would move the window silently.
+        $s = New-VmPowerSchedule -Name office-hours-ch -TimeZone 'UTC' -Daily '12:00-13:00'
+        $viaLocal = @($s | Show-VmPowerScheduleCalendar -FromUtc ([datetime]::new(2026, 6, 1, 0, 0, 0, [System.DateTimeKind]::Local)) -Days 1)
+        $viaUtc = @($s | Show-VmPowerScheduleCalendar -FromUtc ([datetime]::new(2026, 6, 1, 0, 0, 0, [System.DateTimeKind]::Local).ToUniversalTime()) -Days 1)
+        @($viaLocal.Utc) | Should -Be @($viaUtc.Utc)
+    }
+
+    It 'skips an exception date and says which one' {
+        $s = New-VmPowerSchedule -Name office-hours-ch -TimeZone 'UTC' -Daily '09:00-17:00' -ExceptDate '2026-12-24'
+        $day = @($s | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 12 24) -Days 1)
+        @($day | Where-Object Skipped).Count | Should -Be 2
+        $day[0].Action | Should -Be 'None'
+        $day[0].Note | Should -Match '2026-12-24'
+    }
+
+    It 'produces nothing on a day the schedule does not cover' {
+        $s = New-VmPowerSchedule -Name weekdays-only -TimeZone 'UTC' -Weekdays '09:00-17:00'
+        # 2026-06-06 is a Saturday.
+        @($s | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 6 6) -Days 2).Count | Should -Be 0
+    }
+
+    It 'orders a whole catalogue by instant, not by schedule' {
+        $early = New-VmPowerSchedule -Name early-birds -TimeZone 'UTC' -Daily '06:00-14:00'
+        $late = New-VmPowerSchedule -Name late-shift -TimeZone 'UTC' -Daily '14:00-22:00'
+        $all = @($late, $early | Show-VmPowerScheduleCalendar -FromUtc (Get-Utc 2026 6 1) -Days 1)
+        @($all.Utc) | Should -Be @($all.Utc | Sort-Object)
     }
 }
