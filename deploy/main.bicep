@@ -98,6 +98,19 @@ param scheduleStartTime string = dateTimeAdd(baseTime, 'PT1H')
 
 param scheduleTimeZone string = 'Etc/UTC'
 
+@description('Create the two policies that keep the tag honest: one that catches a schedule name that does not exist, one that reports machines nobody has tagged. Generated from scheduleCatalog, so they cannot drift from it.')
+param deployPolicies bool = true
+
+@description('What to do about a machine whose tag names a schedule that does not exist. Audit first: Deny on an estate that already has typos blocks work rather than fixing it.')
+@allowed(['Audit', 'Deny', 'Disabled'])
+param unknownScheduleEffect string = 'Audit'
+
+@description('What to do about a machine with no schedule tag. A report, not a rule - an untagged machine is deliberately unmanaged.')
+@allowed(['Audit', 'Disabled'])
+param untaggedEffect string = 'Audit'
+
+param policyNamePrefix string = 'vm-power'
+
 param roleName string = 'AzureVMPowerManagement Operator'
 
 @description('Exactly the actions the runbook calls, and nothing else. Reader cannot start or deallocate; Virtual Machine Contributor can also install extensions, which is code execution as SYSTEM or root on every machine in scope.')
@@ -185,6 +198,21 @@ module assignAtResourceGroup 'modules/role-assignment-resourcegroup.bicep' = if 
   params: {
     principalId: automation.outputs.principalId
     roleDefinitionId: operatorRole.id
+  }
+}
+
+// The allowed values come from the catalogue itself, so a schedule that exists is a schedule the
+// policy accepts, always. Nothing lists a name twice.
+module policies 'modules/policy.bicep' = if (deployPolicies) {
+  name: 'power-schedule-policies'
+  params: {
+    scheduleNames: [for entry in scheduleCatalog: entry.name]
+    scheduleTag: scheduleTag
+    unknownScheduleEffect: unknownScheduleEffect
+    untaggedEffect: untaggedEffect
+    assignmentScopeResourceGroupName: targetResourceGroupName
+    policyNamePrefix: policyNamePrefix
+    tags: tags
   }
 }
 

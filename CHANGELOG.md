@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Two Azure Policy definitions, generated from the catalogue.** One catches a `PowerSchedule` tag
+  naming a schedule that does not exist, the other reports machines with no tag at all. The allowed
+  values come from `scheduleCatalog`, so a schedule that exists is one the policy accepts. Both
+  default to `Audit`.
+
 ### Verified
 
 - **The loop closes.** Fourth scheduled job in a real Automation Account completed disarmed:
