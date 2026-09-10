@@ -107,6 +107,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Marker the workbook keys on. Changing it silently empties every panel, so it lives in one place
+# and is quoted in deploy/workbook.json rather than retyped there.
+$script:RecordPrefix = 'PMREC'
+$runId = [guid]::NewGuid().ToString()
+$runStarted = [datetime]::UtcNow.ToString('o')
+
 # Every operable setting comes from an Automation variable unless the caller passed it explicitly.
 # Job schedule parameters are immutable once the link exists - Automation ignores a PUT on a link
 # that is already there and keeps the old parameters, reporting success. Arming a deployment would
@@ -261,18 +267,50 @@ function Add-Summary {
     if ($summary.ContainsKey($Key)) { $summary[$Key]++ } else { $summary[$Key] = 1 }
 }
 
+# One machine-readable line per machine, alongside the readable one. The workbook parses these out
+# of the job streams, which means no data collection rule, no custom table and no extra bill - and
+# it means the evidence is the job log rather than a second thing that can disagree with it.
+# The prefix is what makes the line findable in KQL; keep it stable.
+function Write-Record {
+    param(
+        [Parameter(Mandatory)]$Item,
+        [Parameter(Mandatory)][string]$Status,
+        [Parameter(Mandatory)][string]$Detail
+    )
+    $record = [ordered]@{
+        t      = $runStarted
+        run    = $runId
+        armed  = $Armed
+        vm     = [string]$Item.Name
+        rg     = [string]$Item.ResourceGroup
+        sub    = [string]$Item.SubscriptionId
+        loc    = [string]$Item.Location
+        size   = [string]$Item.VmSize
+        state  = ([string]$Item.PowerState) -replace '^PowerState/', ''
+        sched  = [string]$Item.Schedule
+        action = [string]$Item.Action
+        reason = [string]$Item.Reason
+        status = $Status
+    }
+    Write-Output ("$script:RecordPrefix " + (ConvertTo-Json -InputObject $record -Depth 3 -Compress))
+    Write-Output "[$($Item.Name)] $($Item.Action) - $Status`: $Detail"
+}
+
 if (-not $Armed) {
     # Disarmed is not a different code path: the same plan is printed instead of performed, so what
     # a first week reports is exactly what arming it would have done.
     foreach ($item in $plan) {
-        Write-Output "[$($item.Name)] $($item.Action) - $($item.Reason): $($item.Explanation)"
+        Write-Record -Item $item -Status $item.Reason -Detail $item.Explanation
         Add-Summary $item.Reason
         $item
     }
 }
 else {
+    $byId = @{}
+    foreach ($item in $plan) { $byId[[string]$item.Id] = $item }
     foreach ($result in ($plan | Invoke-VmPowerPlan -MaximumActions $MaximumActions -MinimumDwellMinutes $MinimumDwellMinutes -Confirm:$false)) {
-        Write-Output "[$($result.Name)] $($result.Action) - $($result.Status): $($result.Detail)"
+        $source = if ($byId.ContainsKey([string]$result.Id)) { $byId[[string]$result.Id] } else { $result }
+        Write-Record -Item $source -Status $result.Status -Detail $result.Detail
         Add-Summary $result.Status
         $result
     }

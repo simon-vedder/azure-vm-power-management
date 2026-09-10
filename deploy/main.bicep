@@ -111,6 +111,9 @@ param untaggedEffect string = 'Audit'
 
 param policyNamePrefix string = 'vm-power'
 
+@description('Deploy the workbook that shows what the controller decided and why. It reads the runbook job streams out of Log Analytics, so it needs no extra collection and costs nothing beyond the workspace.')
+param deployWorkbook bool = true
+
 param roleName string = 'AzureVMPowerManagement Operator'
 
 @description('Exactly the actions the runbook calls, and nothing else. Reader cannot start or deallocate; Virtual Machine Contributor can also install extensions, which is code execution as SYSTEM or root on every machine in scope.')
@@ -161,6 +164,10 @@ module automation 'modules/automation.bicep' = {
     intervalMinutes: intervalMinutes
     scheduleStartTime: scheduleStartTime
     scheduleTimeZone: scheduleTimeZone
+    deployWorkbook: deployWorkbook
+    // Loaded, not pasted: a copy of the definition inside the template would drift from the file
+    // the moment anybody edited one of them.
+    workbookDefinition: loadTextContent('workbook.json')
   }
 }
 

@@ -993,3 +993,47 @@ Describe 'The generated policy' {
         $policyBicep | Should -Not -Match 'identity:'
     }
 }
+
+Describe 'The workbook' {
+    BeforeAll {
+        $deployRoot = Join-Path $PSScriptRoot '..' 'deploy'
+        $workbook = Get-Content -Raw (Join-Path $deployRoot 'workbook.json')
+        $runbook = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'src' 'runbooks' 'Invoke-AzureVMPowerManagementRunbook.ps1')
+        $definition = $workbook | ConvertFrom-Json
+    }
+
+    It 'is valid JSON with panels in it' {
+        @($definition.items).Count | Should -BeGreaterThan 4
+    }
+
+    It 'keys on the same marker the runbook writes' {
+        # Changing the prefix on one side silently empties every panel, which is the kind of break
+        # that looks like "there is nothing to report".
+        $runbook | Should -Match "RecordPrefix = 'PMREC'"
+        $workbook | Should -Match 'PMREC '
+    }
+
+    It 'reads only fields the runbook actually emits' {
+        $emitted = @('t', 'run', 'armed', 'vm', 'rg', 'sub', 'loc', 'size', 'state', 'sched', 'action', 'reason', 'status')
+        foreach ($field in ([regex]::Matches($workbook, 'rec\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)) {
+            $field | Should -BeIn $emitted
+        }
+    }
+
+    It 'claims no money figure' {
+        # Turning deallocations into currency needs live pricing per size, region and licence. A
+        # number that looks precise and is guessed is worse than no number.
+        $workbook | Should -Not -Match '(?i)\b(CHF|EUR|USD|\$[0-9])'
+        $workbook | Should -Match 'No money figure appears here on purpose'
+    }
+
+    It 'leads with the panel that pays for the tool' {
+        $titles = @($definition.items | Where-Object { $_.content.title } | ForEach-Object { $_.content.title })
+        $titles | Should -Contain 'Powered off and still billed'
+    }
+
+    It 'is loaded from the file rather than pasted into the template' {
+        (Get-Content -Raw (Join-Path $deployRoot 'main.bicep')) |
+            Should -Match "loadTextContent\('workbook\.json'\)"
+    }
+}

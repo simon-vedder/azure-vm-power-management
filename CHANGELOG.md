@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **A workbook that shows what the controller decided and why.** It reads the runbook's own job
+  streams, so there is no data collection rule, no custom table and nothing that can disagree with
+  the job log. The runbook writes one machine-readable record per machine alongside the readable
+  line. No money figure: pricing per size, region and licence is not something to guess at.
 - **Two Azure Policy definitions, generated from the catalogue.** One catches a `PowerSchedule` tag
   naming a schedule that does not exist, the other reports machines with no tag at all. The allowed
   values come from `scheduleCatalog`, so a schedule that exists is one the policy accepts. Both
