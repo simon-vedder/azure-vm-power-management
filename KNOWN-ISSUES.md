@@ -59,12 +59,20 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   a graceful shutdown and leaves the machine allocated, which is exactly what a person shutting down
   from inside Windows or Linux produces. Useful for a lab: no public address and no sign-in needed.
 
-- *(to verify)* **`Get-AutomationVariable` inside the PowerShell 7.2 runtime.** Every setting the
-  deployment writes - whether it is armed, the blast radius, the catalogue - is read through that
-  internal cmdlet. Microsoft documents `Orchestrator.AssetManagement.Cmdlets` as installed by default
-  and available in the sandbox, but says nothing specific about the 7.2 runtime, and no runbook job
-  has run yet. The failure mode is safe rather than silent: without it the fallbacks apply, the blast
-  radius reads as zero and the run refuses with "No blast radius is set". On the lab list.
+- *(observed)* **`Get-AutomationVariable` works in the PowerShell 7.2 runtime**, and every scalar
+  setting resolved through it on the first real job: `Armed: False | MaximumActions: 25 | Dwell: 30
+  min`, read from `PM_Armed`, `PM_MaximumActions` and `PM_MinimumDwellMinutes`. 2026-09-10.
+- *(observed)* **The same variable has two shapes depending on how it is read.** Over ARM,
+  `properties.value` is the raw JSON text. `Get-AutomationVariable` deserialises it first, so a JSON
+  array arrives as objects. Code that reads a variable both ways - as this tool does, from a laptop
+  and from a runbook - has to accept both. Casting the deserialised form to a string and parsing it
+  fails with `Additional text encountered after finished reading JSON content`, which is what the
+  first real runbook job did on 2026-09-10.
+- *(observed)* **A module published to the Gallery imports cleanly into the PowerShell 7.2 runtime
+  next to the global Az bundle**, when its manifest minimums match the runtime's own versions and it
+  pulls in nothing else. `AzureVMPowerManagement 0.1.0` imported as `Succeeded` on 2026-09-10. The
+  assembly-loading trouble seen on another tool came from importing a newer `Az.Accounts` alongside
+  the bundle, not from importing a module at all.
 
 ## Sharp edges in the tooling itself
 
