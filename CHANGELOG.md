@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Verified
+
+- **The loop closes.** Fourth scheduled job in a real Automation Account completed disarmed:
+  settings from variables, both catalogue variables merged and validated, time zones resolved,
+  Resource Graph queried, a plan printed, nothing touched. Full log in
+  [docs/verification.md](docs/verification.md).
+
 ## [0.1.2-preview] - 2026-09-10
 
 ### Fixed

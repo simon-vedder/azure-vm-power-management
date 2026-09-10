@@ -81,6 +81,12 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   and from a runbook - has to accept both. Casting the deserialised form to a string and parsing it
   fails with `Additional text encountered after finished reading JSON content`, which is what the
   first real runbook job did on 2026-09-10.
+- *(observed)* **A module import attempted immediately after publishing can fail with `No content
+  was read from the supplied ContentUri`**, and succeed on a retry minutes later with the same URI.
+  The package URL answered 200 with content throughout, so this is the Gallery not yet serving the
+  download path Automation uses. A failed import leaves the previous version in place and does not
+  fail the rest of the deployment, so the module resource has to be checked rather than the
+  deployment status. 2026-09-10.
 - *(observed)* **A module published to the Gallery imports cleanly into the PowerShell 7.2 runtime
   next to the global Az bundle**, when its manifest minimums match the runtime's own versions and it
   pulls in nothing else. `AzureVMPowerManagement 0.1.0` imported as `Succeeded` on 2026-09-10. The
