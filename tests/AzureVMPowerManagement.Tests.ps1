@@ -761,9 +761,21 @@ Describe 'The catalogue in an Automation Account' {
             {
                 & (Get-Module AzureVMPowerManagement) {
                     param($c)
-                    Set-VmPowerCatalogVariable -ResourceGroupName rg -AutomationAccountName aa -VariableName v -Catalog $c
+                    # -SubscriptionId given so the test needs no Azure context: it is checking the
+                    # shape of the catalogue, not the sign-in.
+                    Set-VmPowerCatalogVariable -ResourceGroupName rg -AutomationAccountName aa -VariableName v -SubscriptionId '00000000-0000-0000-0000-000000000000' -Catalog $c
                 } $nested
             } | Should -Throw -ExpectedMessage '*collection rather than a schedule*'
+        }
+
+        It 'says to sign in rather than naming a missing property' {
+            # Without a context, (Get-AzContext).Subscription.Id fails with "The property
+            # 'Subscription' cannot be found on this object". CI has no context, which is how this
+            # surfaced on 2026-09-10.
+            Mock -CommandName Get-AzContext -ModuleName AzureVMPowerManagement -MockWith { $null }
+            {
+                & (Get-Module AzureVMPowerManagement) { Resolve-VmPowerSubscription }
+            } | Should -Throw -ExpectedMessage '*Connect-AzAccount*'
         }
 
         It 'names the caller when Expand-VmPowerSchedule is handed a list' {

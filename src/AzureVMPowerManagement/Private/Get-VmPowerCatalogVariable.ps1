@@ -46,7 +46,7 @@ function Get-VmPowerCatalogVariable {
         [string]$SubscriptionId
     )
 
-    $subscription = if ($SubscriptionId) { $SubscriptionId } else { (Get-AzContext -ErrorAction Stop).Subscription.Id }
+    $subscription = if ($SubscriptionId) { $SubscriptionId } else { Resolve-VmPowerSubscription }
     $uri = ('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Automation/automationAccounts/{2}/variables/{3}?api-version={4}' -f
         $subscription, $ResourceGroupName, $AutomationAccountName, $VariableName, $script:AutomationApiVersion)
 

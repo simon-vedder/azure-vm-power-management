@@ -49,10 +49,6 @@ function Set-VmPowerCatalogVariable {
         [string]$SubscriptionId
     )
 
-    $subscription = if ($SubscriptionId) { $SubscriptionId } else { (Get-AzContext -ErrorAction Stop).Subscription.Id }
-    $uri = ('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Automation/automationAccounts/{2}/variables/{3}?api-version={4}' -f
-        $subscription, $ResourceGroupName, $AutomationAccountName, $VariableName, $script:AutomationApiVersion)
-
     # A catalogue entry that is itself a collection serialises as a nested array, and the reader
     # then sees a schedule with no name. That reached a real Automation Account once, on
     # 2026-09-10, and the read side only said "name '' is not usable" - true, and useless. Refusing
@@ -67,6 +63,10 @@ function Set-VmPowerCatalogVariable {
         }
         $flat.Add($entry)
     }
+
+    $subscription = if ($SubscriptionId) { $SubscriptionId } else { Resolve-VmPowerSubscription }
+    $uri = ('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Automation/automationAccounts/{2}/variables/{3}?api-version={4}' -f
+        $subscription, $ResourceGroupName, $AutomationAccountName, $VariableName, $script:AutomationApiVersion)
 
     $json = ConvertTo-Json -InputObject @($flat.ToArray()) -Depth 8 -Compress
 
