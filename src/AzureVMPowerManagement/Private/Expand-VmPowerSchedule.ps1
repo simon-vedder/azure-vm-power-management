@@ -45,10 +45,13 @@ function Expand-VmPowerSchedule {
 
     $timeZoneId = [string]$raw['timeZone']
     if (-not $timeZoneId) { throw "Schedule '$name' has no timeZone. There is no sensible default: a schedule without one is a schedule in somebody else's morning." }
-    # Resolved rather than looked up: the id is stored as written, and the two platforms this runs
-    # on know different forms. See Resolve-VmPowerTimeZone.
+    # Normalised to the Windows form, not stored as written. The sandbox that runs a schedule cannot
+    # translate an IANA id - it has no CLDR data at all - while every platform that can author one
+    # resolves a Windows id fine. So the conversion happens here, where ICU is available, and what
+    # reaches the catalogue is what the runbook can read. See Resolve-VmPowerTimeZone and ADR 0008.
     try { $null = Resolve-VmPowerTimeZone -Id $timeZoneId }
     catch { throw "Schedule '$name': $($_.Exception.Message)" }
+    $timeZoneId = ConvertTo-VmPowerPortableTimeZoneId -Id $timeZoneId
 
     # Shorthand first: weekdays '07:30-18:30' is the case almost everybody wants, and writing it as
     # two action entries by hand is how people end up with a stop and no start.

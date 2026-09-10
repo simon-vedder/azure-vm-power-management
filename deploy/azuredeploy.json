@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "4858952012713358425"
+      "templateHash": "13060106198198770066"
     }
   },
   "parameters": {
@@ -134,14 +134,14 @@
         {
           "name": "office-hours-ch",
           "displayName": "Office hours, Switzerland",
-          "timeZone": "Europe/Zurich",
+          "timeZone": "W. Europe Standard Time",
           "weekdays": "07:30-18:30",
           "minimumDwellMinutes": 30
         },
         {
           "name": "always-on",
           "displayName": "Managed, but never stopped",
-          "timeZone": "Etc/UTC",
+          "timeZone": "UTC",
           "actions": [
             {
               "action": "Start",
@@ -153,7 +153,7 @@
         }
       ],
       "metadata": {
-        "description": "Schedules that ship with this deployment. Overwritten on every deployment; anything added with Set-VmPowerSchedule lives in PM_ScheduleCatalogCustom and is never touched here. Examples, not a fixed set - see docs/decisions/0005."
+        "description": "Schedules that ship with this deployment. Time zones use the Windows form because that is the only one an Automation sandbox resolves - see docs/decisions/0008. Overwritten on every deployment; anything added with Set-VmPowerSchedule lives in PM_ScheduleCatalogCustom and is never touched here. Examples, not a fixed set - see docs/decisions/0005."
       }
     },
     "intervalMinutes": {

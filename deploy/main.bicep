@@ -2,7 +2,7 @@
 // system-assigned identity, the least-privilege role it needs, Log Analytics, module import,
 // runbook and its hourly trigger. Subscription scope because a custom role definition lives there.
 //
-//   az deployment sub create -l westeurope -f deploy/main.bicep -p moduleVersion=0.1.1 maximumActions=25
+//   az deployment sub create -l westeurope -f deploy/main.bicep -p moduleVersion=0.1.2 maximumActions=25
 //
 // It arrives disarmed. The schedule runs the runbook every hour, it decides everything and it
 // touches nothing until PM_Armed is set to true - which is one edit in the portal, not a
@@ -64,19 +64,19 @@ param exclusionTag string = 'PowerSchedule-Exclude'
 @description('Comma-separated subscriptions to narrow discovery to. Empty plans across everything the identity can read, which is one Resource Graph query rather than a loop.')
 param subscriptionIdFilter string = ''
 
-@description('Schedules that ship with this deployment. Overwritten on every deployment; anything added with Set-VmPowerSchedule lives in PM_ScheduleCatalogCustom and is never touched here. Examples, not a fixed set - see docs/decisions/0005.')
+@description('Schedules that ship with this deployment. Time zones use the Windows form because that is the only one an Automation sandbox resolves - see docs/decisions/0008. Overwritten on every deployment; anything added with Set-VmPowerSchedule lives in PM_ScheduleCatalogCustom and is never touched here. Examples, not a fixed set - see docs/decisions/0005.')
 param scheduleCatalog array = [
   {
     name: 'office-hours-ch'
     displayName: 'Office hours, Switzerland'
-    timeZone: 'Europe/Zurich'
+    timeZone: 'W. Europe Standard Time'
     weekdays: '07:30-18:30'
     minimumDwellMinutes: 30
   }
   {
     name: 'always-on'
     displayName: 'Managed, but never stopped'
-    timeZone: 'Etc/UTC'
+    timeZone: 'UTC'
     actions: [
       {
         action: 'Start'

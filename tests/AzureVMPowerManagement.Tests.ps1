@@ -419,9 +419,9 @@ Describe 'New-VmPowerSchedule' {
             { New-VmPowerSchedule -Name $_ -TimeZone 'UTC' -Start '06:00' } | Should -Throw -ExpectedMessage '*not usable*'
         }
 
-        It 'refuses a time zone this runtime cannot resolve, and names both accepted forms' {
+        It 'refuses a time zone this runtime cannot resolve' {
             { New-VmPowerSchedule -Name lab -TimeZone 'Middle-earth/Shire' -Start '06:00' } |
-                Should -Throw -ExpectedMessage '*Europe/Zurich*'
+                Should -Throw -ExpectedMessage '*Time zone*'
         }
 
         It 'refuses the malformed time <_>' -ForEach @('25:00', '07:60', '0730', 'half eight') {
@@ -927,15 +927,29 @@ Describe 'Time zone ids across platforms' {
             Should -Be ([System.TimeZoneInfo]::ConvertTimeToUtc($local, $viaWindows))
     }
 
-    It 'says the id is wrong rather than in the wrong form' {
-        { & $Resolve -Id 'Middle-earth/Shire' } | Should -Throw -ExpectedMessage '*wrong rather than in the wrong form*'
+    It 'tells an author with an unconvertible IANA id what to do about it' {
+        { & $Resolve -Id 'Middle-earth/Shire' } | Should -Throw -ExpectedMessage '*Windows form*'
     }
 
-    It 'lets a schedule keep the id it was written with' {
-        # Not normalised on the way in: a catalogue authored on a Mac stays readable there, and the
-        # translation happens where it is used.
+    It 'stores the Windows form, because that is the only one the sandbox resolves' {
+        # Reversed by ADR 0008. The sandbox runs .NET in NLS mode with no CLDR data at all, so an
+        # IANA id cannot be translated there - only rejected. Converting on the way in is the only
+        # place it can happen.
         $s = New-VmPowerSchedule -Name portable -TimeZone 'Europe/Zurich' -Weekdays '07:30-18:30'
-        $s.TimeZone | Should -Be 'Europe/Zurich'
+        $s.TimeZone | Should -Be 'W. Europe Standard Time'
+    }
+
+    It 'leaves an id that is already the Windows form alone' {
+        (New-VmPowerSchedule -Name portable -TimeZone 'W. Europe Standard Time' -Start '06:00').TimeZone |
+            Should -Be 'W. Europe Standard Time'
+    }
+
+    It 'normalises the deployment catalogue defaults too' {
+        # These go straight into an Automation variable without passing through the module, so they
+        # have to be right in the Bicep. Three real runbook jobs failed because they were not.
+        $bicep = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'deploy' 'main.bicep')
+        $bicep | Should -Not -Match "timeZone: 'Europe/"
+        $bicep | Should -Not -Match "timeZone: 'Etc/"
     }
 
     It 'produces the same calendar from either form' {
