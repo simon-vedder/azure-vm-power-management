@@ -108,14 +108,49 @@ correct on its own:
   `[string]` on it drops the `Z`, and the store then aged by the local offset and pruned itself
   empty one run after it was written.
 
+## 2026-09-10 — 0.1.3-preview, armed, in a real Automation Account
+
+A personal Azure test subscription, `westeurope`. One deployment of `main.bicep` at
+`moduleVersion=0.1.3-preview`, two `Standard_B1s` machines, both put into `PowerState/stopped` with
+`az vm stop`. One tagged `PowerSchedule=office-hours-ch`, one left untagged. Torn down afterwards,
+subscription verified empty; cost a few cents.
+
+The first deployment failed, on the version string itself:
+
+> `The contentUri.version property is of an invalid form or value. It must be null or of a form
+> compliant with the System.Version class.`
+
+`contentVersion` defaulted to `moduleVersion`, and `0.1.3-preview` is a SemVer, not a
+`System.Version`. The Gallery needs the suffix and the content link cannot have it. Fixed by
+stripping it where the stamp is derived — and worth noting that this is the version string the
+README itself calls published, so the first person to copy it would have hit the same wall.
+
+| Job | Armed | Result |
+|---|---|---|
+| 1 | no | Both machines discovered. Tagged → `Deallocate`/StoppedNotDeallocated, untagged → `None`/StrandedButNotOnboarded. Nothing touched. |
+| 2 | **yes** | `vm-lab-tagged` moved `VM stopped` → `VM deallocated`. `vm-lab-untagged` left alone: opt-in holding under real conditions. `PM_LastActionAt` written. |
+| 3 | yes | `Dwell: 30 min, 1 machine(s) remembered from earlier runs` — the store round-trips. |
+| 4 | yes | Machine put back into `stopped` by hand. `Deallocate - Skipped: Acted on 5 minute(s) ago, inside the 30 minute dwell`. Left in `stopped`. |
+
+What that settles:
+
+- **The controller has now run armed on a real schedule inside the sandbox.** Every armed run before
+  this was from a laptop.
+- **`Set-AutomationVariable` works in the PowerShell 7.2 runtime.** This was the one load-bearing
+  unknown in the dwell memory, and the reason the write was built to degrade rather than fail.
+- **The dwell guard fires against a real machine**, with the timestamp and its zone intact across
+  the Automation variable. The same round trip had silently pruned itself empty two hours earlier.
+- **The workbook's headline panel returns rows from real data.** Job streams reached Log Analytics
+  and `Powered off and still billed` listed both machines, one `yes`, one `no - reported only`.
+- **`Switch-VmPowerSubscriptionContext` moves a real context between two real subscriptions**, and
+  restores it. Read-only, from a laptop: nothing was deployed to the second subscription.
+
 ## What is still unproved
 
-- The controller has never run **armed** on a schedule inside a sandbox. Every armed run so far was
-  from a laptop.
 - No estate large enough to page Resource Graph has been seen.
-- **`Set-AutomationVariable` has not been observed in the PowerShell 7.2 sandbox.** `Get-AutomationVariable`
-  has been, on a real job. The write is the half that carries the dwell memory, and it is written to
-  degrade rather than fail: if the cmdlet is missing or the write is refused, the run says
-  `Dwell: nothing remembered` and carries on. One armed job will settle it.
-- The multi-subscription path has been proved against stubs, not against two real subscriptions with
-  a machine of the same name in each.
+- **A machine has never been started by the controller in anger.** Every armed run so far exercised
+  the deallocate path; `ShouldBeRunning` is covered by tests and by a laptop run, not by a sandbox.
+- **The multi-subscription path is proved in halves.** The context switch moves a real context
+  between two real subscriptions, and the end-to-end behaviour is proved against stubs with a
+  machine of the same name in each. Nothing has yet deallocated across two subscriptions in one run.
+- Nothing has run for a week, so no report covers a daylight saving change or a weekend.

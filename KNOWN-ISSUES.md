@@ -16,6 +16,13 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   whole run. A job that fails with `more than the N allowed` while `PM_Armed` is false has changed
   nothing and is telling you the number is wrong at the only time that costs nothing. Raise
   `PM_MaximumActions`, or look at what made the plan jump.
+- *(observed)* **A prerelease `moduleVersion` used to break the deployment.** Automation validates
+  `contentUri.version` against `System.Version`, which cannot parse `0.1.3-preview`, and refuses the
+  module import with `The contentUri.version property is of an invalid form or value` - an ARM error
+  naming a property nobody passed. The Gallery wants the suffix and the content link cannot have it,
+  so the suffix is stripped where the stamp is derived. Both Gallery URL forms answer 200 with the
+  same package, so `0.1.3` and `0.1.3-preview` are equally valid for `moduleVersion` now. Hit on the
+  very first lab deployment of 0.1.3, 2026-09-10.
 - *(observed)* **A redeployment resets `PM_LastActionAt` to `{}`.** ARM has no create-if-absent, and
   the variable has to exist before the runbook can write it, so the deployment ships it empty. The
   first run after a redeployment therefore has no memory and the dwell guard stands down for that
@@ -69,6 +76,11 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   a graceful shutdown and leaves the machine allocated, which is exactly what a person shutting down
   from inside Windows or Linux produces. Useful for a lab: no public address and no sign-in needed.
 
+- *(observed)* **`Set-AutomationVariable` works in the PowerShell 7.2 runtime**, and the value it
+  writes survives being read back by `Get-AutomationVariable`. It stores the string it is given, so
+  over ARM the value is JSON inside a JSON string; through the asset cmdlet it arrives already
+  unwrapped. Both shapes are handled. Measured against a real Automation Account on 2026-09-10:
+  `PM_LastActionAt` written by an armed job and read back by the next one, timestamp and zone intact.
 - *(observed)* **`Get-AutomationVariable` works in the PowerShell 7.2 runtime**, and every scalar
   setting resolved through it on the first real job: `Armed: False | MaximumActions: 25 | Dwell: 30
   min`, read from `PM_Armed`, `PM_MaximumActions` and `PM_MinimumDwellMinutes`. 2026-09-10.

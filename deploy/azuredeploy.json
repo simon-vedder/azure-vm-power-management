@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "2927628853879489414"
+      "templateHash": "1825170216424350019"
     }
   },
   "parameters": {
@@ -45,7 +45,7 @@
       "defaultValue": "",
       "minLength": 0,
       "metadata": {
-        "description": "Version stamp written to the module and runbook content links, System.Version form (up to four numeric parts, e.g. 0.1.0.1). Defaults to moduleVersion; bump it to force Automation to re-import unchanged URIs."
+        "description": "Version stamp written to the module and runbook content links, System.Version form (up to four numeric parts, e.g. 0.1.0.1). Defaults to moduleVersion with any prerelease suffix removed; bump it to force Automation to re-import unchanged URIs."
       }
     },
     "modulePackageUri": {
@@ -309,7 +309,7 @@
           "runbookContentUri": {
             "value": "[parameters('runbookContentUri')]"
           },
-          "contentVersion": "[if(empty(parameters('contentVersion')), createObject('value', parameters('moduleVersion')), createObject('value', parameters('contentVersion')))]",
+          "contentVersion": "[if(empty(parameters('contentVersion')), createObject('value', split(parameters('moduleVersion'), '-')[0]), createObject('value', parameters('contentVersion')))]",
           "importModule": {
             "value": "[parameters('importModule')]"
           },
