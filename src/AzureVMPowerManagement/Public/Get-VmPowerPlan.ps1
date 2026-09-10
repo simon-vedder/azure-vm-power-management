@@ -117,8 +117,10 @@ function Get-VmPowerPlan {
         if ($state.ContainsKey($expanded.Name)) {
             throw "The catalogue passed to -Schedule contains '$($expanded.Name)' more than once. Run it through Test-VmPowerSchedule: a duplicate means one of the two silently wins."
         }
-        $state[$expanded.Name] = Get-VmPowerScheduleState -Schedule $expanded -AtUtc $AtUtc
-        Write-Verbose "Schedule '$($expanded.Name)' wants machines $($state[$expanded.Name]) at $AtUtc."
+        $desired = Get-VmPowerScheduleState -Schedule $expanded -AtUtc $AtUtc
+        $desired | Add-Member -NotePropertyName 'StartGraceMinutes' -NotePropertyValue $expanded.StartGraceMinutes -Force
+        $state[$expanded.Name] = $desired
+        Write-Verbose "Schedule '$($expanded.Name)' wants machines $($desired.State) at $AtUtc, last action $($desired.MinutesSince) minute(s) ago."
     }
 
     $graph = @{ Query = Get-VmPowerInventoryQuery }

@@ -33,6 +33,13 @@ BeforeAll {
         [pscustomobject]$machine
     }
 
+    # The desired state is an object now: what the schedule wants, how long it has wanted it, and
+    # the schedule's start grace. See docs/decisions/0007.
+    function New-State {
+        param([string]$State = 'Up', [int]$MinutesSince = 5, [int]$Grace = 120)
+        [pscustomobject]@{ State = $State; MinutesSince = $MinutesSince; StartGraceMinutes = $Grace; At = [datetime]::UtcNow }
+    }
+
     function New-Decision {
         param([hashtable]$Override = @{})
         $decision = @{
@@ -538,23 +545,23 @@ Describe 'The schedule rule' {
 
     Context 'what a schedule wants right now' {
         It 'wants machines up at <_>:00' -ForEach @(8, 12, 17) {
-            Get-State $_ | Should -Be 'Up'
+            (Get-State $_).State | Should -Be 'Up'
         }
 
         It 'wants machines down at <_>:00' -ForEach @(18, 22, 3) {
-            Get-State $_ | Should -Be 'Down'
+            (Get-State $_).State | Should -Be 'Down'
         }
 
         It 'looks backwards, so a machine that failed to start is still supposed to be running' {
             # An engine that only asked "what is due in the next hour" would never notice a start
             # that did not happen at 08:00 and would leave the machine down all day.
-            Get-State 15 | Should -Be 'Up'
+            (Get-State 15).State | Should -Be 'Up'
         }
 
         It 'keeps the state it had going into an exception date rather than flipping' {
             $s = New-VmPowerSchedule -Name holidays -TimeZone 'UTC' -Daily '08:00-18:00' -ExceptDate '2026-06-02'
             $onTheDay = & $module { param($x, $t) Get-VmPowerScheduleState -Schedule $x -AtUtc $t } $s ([datetime]::new(2026, 6, 2, 12, 0, 0, [System.DateTimeKind]::Utc))
-            $onTheDay | Should -Be 'Down'
+            $onTheDay.State | Should -Be 'Down'
         }
 
         It 'says Unknown rather than guessing when nothing has happened in the lookback' {
@@ -563,7 +570,7 @@ Describe 'The schedule rule' {
             $s = New-VmPowerSchedule -Name rare -TimeZone 'UTC' -Days Monday -Start '08:00'
             $tuesday = [datetime]::new(2026, 6, 2, 12, 0, 0, [System.DateTimeKind]::Utc)
             $state = & $module { param($x, $t, $d) Get-VmPowerScheduleState -Schedule $x -AtUtc $t -LookbackDays $d } $s $tuesday 1
-            $state | Should -Be 'Unknown'
+            $state.State | Should -Be 'Unknown'
         }
 
         It 'finds the Monday action when the lookback is long enough' {
@@ -571,35 +578,35 @@ Describe 'The schedule rule' {
             $s = New-VmPowerSchedule -Name rare -TimeZone 'UTC' -Days Monday -Start '08:00'
             $tuesday = [datetime]::new(2026, 6, 2, 12, 0, 0, [System.DateTimeKind]::Utc)
             $state = & $module { param($x, $t, $d) Get-VmPowerScheduleState -Schedule $x -AtUtc $t -LookbackDays $d } $s $tuesday 7
-            $state | Should -Be 'Up'
+            $state.State | Should -Be 'Up'
         }
     }
 
     Context 'what the rule does with it' {
         It 'starts a deallocated machine the schedule wants up' {
             $machine = New-Machine @{ powerState = 'PowerState/deallocated' }
-            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = 'Up' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up -MinutesSince 5) }
             $decision.Action | Should -Be 'Start'
             $decision.Reason | Should -Be 'ShouldBeRunning'
         }
 
         It 'deallocates a running machine the schedule wants down' {
             $machine = New-Machine @{ powerState = 'PowerState/running' }
-            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = 'Down' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Down) }
             $decision.Action | Should -Be 'Deallocate'
             $decision.Reason | Should -Be 'ShouldBeStopped'
         }
 
         It 'leaves a machine that already matches its schedule alone' {
             $machine = New-Machine @{ powerState = 'PowerState/running' }
-            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = 'Up' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up) }
             $decision.Action | Should -Be 'None'
             $decision.Reason | Should -Be 'MatchesSchedule'
         }
 
         It 'does nothing on an Unknown desired state' {
             $machine = New-Machine @{ powerState = 'PowerState/running' }
-            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = 'Unknown' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Unknown) }
             $decision.Action | Should -Be 'None'
             $decision.Reason | Should -Be 'ScheduleStateUnknown'
         }
@@ -609,14 +616,38 @@ Describe 'The schedule rule' {
             # that person; the only question left is whether to keep paying for it. The next
             # scheduled start brings it back if the schedule says so.
             $machine = New-Machine @{ powerState = 'PowerState/stopped' }
-            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = 'Up' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up) }
             $decision.Action | Should -Be 'Deallocate'
             $decision.Reason | Should -Be 'StoppedNotDeallocated'
         }
 
+        It 'leaves a machine that has been down since long after its start' {
+            # Somebody turned it off. Starting it again would undo that, and paired with the
+            # stranded rule the visible result of shutting a machine down would be that it reboots.
+            # Caught in the lab on 2026-09-10; see docs/decisions/0007.
+            $machine = New-Machine @{ powerState = 'PowerState/deallocated' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up -MinutesSince 400 -Grace 120) }
+            $decision.Action | Should -Be 'None'
+            $decision.Reason | Should -Be 'DownSinceTheStartWindow'
+        }
+
+        It 'still retries a start that did not take, inside the grace' {
+            $machine = New-Machine @{ powerState = 'PowerState/deallocated' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up -MinutesSince 119 -Grace 120) }
+            $decision.Action | Should -Be 'Start'
+        }
+
+        It 'stops a running machine outside its hours however long that has been true' {
+            # No grace on the stopping side: a machine still running outside its hours is the thing
+            # this tool exists to find, and the exclusion tag is how somebody says otherwise.
+            $machine = New-Machine @{ powerState = 'PowerState/running' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Down -MinutesSince 900) }
+            $decision.Action | Should -Be 'Deallocate'
+        }
+
         It 'still refuses to touch an excluded machine whatever the schedule wants' {
             $machine = New-Machine @{ powerState = 'PowerState/running'; tags = [pscustomobject]@{ PowerSchedule = 'office-hours-ch'; 'PowerSchedule-Exclude' = 'yes' } }
-            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = 'Down' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Down) }
             $decision.Action | Should -Be 'None'
             $decision.Protected | Should -BeTrue
         }
@@ -627,7 +658,7 @@ Describe 'The schedule rule' {
             Mock -CommandName Invoke-VmPowerGraphQuery -ModuleName AzureVMPowerManagement -MockWith {
                 1..4 | ForEach-Object { New-Machine @{ name = "vm-0$_"; powerState = 'PowerState/deallocated' } }
             }
-            Mock -CommandName Get-VmPowerScheduleState -ModuleName AzureVMPowerManagement -MockWith { 'Up' }
+            Mock -CommandName Get-VmPowerScheduleState -ModuleName AzureVMPowerManagement -MockWith { [pscustomobject]@{ State = 'Up'; MinutesSince = 5; At = [datetime]::UtcNow } }
             $plan = @(Get-VmPowerPlan -Schedule $office)
             $plan.Count | Should -Be 4
             @($plan | Where-Object Action -eq 'Start').Count | Should -Be 4

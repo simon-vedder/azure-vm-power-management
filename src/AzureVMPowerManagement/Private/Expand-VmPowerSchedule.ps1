@@ -129,6 +129,16 @@ function Expand-VmPowerSchedule {
         }
     }
 
+    # How long after a scheduled start this schedule keeps trying to start a machine that is down.
+    # Inside it, a machine that is down is a start that did not work. Outside it, a machine that is
+    # down is a machine somebody turned off - see docs/decisions/0007.
+    $startGrace = 120
+    if ($null -ne $raw['startGraceMinutes'] -and "$($raw['startGraceMinutes'])" -ne '') {
+        if (-not [int]::TryParse("$($raw['startGraceMinutes'])", [ref]$startGrace) -or $startGrace -lt 0 -or $startGrace -gt 1440) {
+            throw "Schedule '$name' has startGraceMinutes '$($raw['startGraceMinutes'])'. Expected 0 to 1440."
+        }
+    }
+
     [pscustomobject]@{
         PSTypeName          = $script:TypeName.Schedule
         Name                = $name
@@ -137,5 +147,6 @@ function Expand-VmPowerSchedule {
         Actions             = @($normalised)
         ExceptDates         = @($exceptDates | Sort-Object -Unique)
         MinimumDwellMinutes = $dwell
+        StartGraceMinutes   = $startGrace
     }
 }

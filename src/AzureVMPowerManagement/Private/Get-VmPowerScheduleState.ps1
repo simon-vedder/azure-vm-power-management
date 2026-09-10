@@ -1,7 +1,7 @@
 function Get-VmPowerScheduleState {
     <#
     .SYNOPSIS
-    What a schedule says a machine should be right now: Up, Down, or not enough to say.
+    What a schedule says a machine should be right now, and how long it has said it.
 
     .DESCRIPTION
     The decision engine needs a desired state, not a list of future events. A machine that should
@@ -29,7 +29,7 @@ function Get-VmPowerScheduleState {
     How far back to search for the last action.
     #>
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)]
         $Schedule,
@@ -51,10 +51,21 @@ function Get-VmPowerScheduleState {
     $occurrences = Get-VmPowerScheduleOccurrence -Schedule $Schedule -FromUtc $at.AddDays(-$LookbackDays) -Days ($LookbackDays + 1)
     $last = @($occurrences | Where-Object { -not $_.Skipped -and $_.Utc -le $at }) | Select-Object -Last 1
 
-    if (-not $last) { return 'Unknown' }
-    switch ($last.Action) {
+    if (-not $last) {
+        return [pscustomobject]@{ State = 'Unknown'; MinutesSince = [int]::MaxValue; At = $null }
+    }
+
+    $state = switch ($last.Action) {
         'Start' { 'Up' }
         'Deallocate' { 'Down' }
         default { 'Unknown' }
+    }
+
+    # The age matters as much as the state. A machine that is down twenty minutes after a scheduled
+    # start is a start that failed; the same machine six hours later is one somebody turned off.
+    [pscustomobject]@{
+        State        = $state
+        MinutesSince = [int][Math]::Floor(($at - $last.Utc).TotalMinutes)
+        At           = $last.Utc
     }
 }

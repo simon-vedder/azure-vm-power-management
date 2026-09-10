@@ -6,9 +6,11 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
 ## Behaviour
 
 - *(observed)* **A machine in `PowerState/stopped` is deallocated even when its schedule wants it
-  up.** Somebody shut it down from inside the guest; starting it back would fight that person, and
-  the machine is billed for compute until it is deallocated. The next scheduled start brings it
-  back. If that is not wanted, exclude the machine.
+  up, and is then left alone.** Somebody shut it down from inside the guest; the tool stops paying
+  for it and does not restart it. It is picked up again at the next scheduled start, within that
+  schedule's `startGraceMinutes`. Until [ADR 0007](docs/decisions/0007-start-only-while-the-start-is-recent.md)
+  it was restarted on the very next run, so the visible effect of shutting a machine down was that
+  it rebooted - found in the lab on 2026-09-10, not by any test.
 - *(observed)* **Deallocating releases a dynamic private IP address.** The stranded-machine rule is
   free of downtime risk because nothing is running, but a machine that comes back may not come back
   on the same address. Static addresses are unaffected. Verified against the documented behaviour of
@@ -52,6 +54,10 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
 - *(observed)* **A redeployment leaves `PM_ScheduleCatalogCustom` alone.** Deployed, added two
   custom schedules including one overriding a shipped example, redeployed, and the override still
   won. 2026-09-10. That split is the whole point of having two variables.
+
+- *(observed)* **`az vm stop` produces the stranded state without touching the guest.** It performs
+  a graceful shutdown and leaves the machine allocated, which is exactly what a person shutting down
+  from inside Windows or Linux produces. Useful for a lab: no public address and no sign-in needed.
 
 ## Sharp edges in the tooling itself
 

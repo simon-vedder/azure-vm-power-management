@@ -35,9 +35,10 @@ function Resolve-VmPowerAction {
     Tag key that protects a machine from every rule.
 
     .PARAMETER ScheduleState
-    Desired state per schedule name, as Get-VmPowerScheduleState works it out: Up, Down or Unknown.
-    Computed once per schedule by the caller rather than per machine, because a thousand machines
-    usually share a handful of schedules.
+    Desired state per schedule name, as Get-VmPowerScheduleState works it out: State, how many
+    minutes ago the schedule last acted, and the schedule's start grace. Computed once per schedule
+    by the caller rather than per machine, because a thousand machines usually share a handful of
+    schedules.
 
     .PARAMETER IncludeUntagged
     Allow a decision on a machine carrying no schedule tag. Off by default, because opt-in is the
@@ -106,10 +107,17 @@ function Resolve-VmPowerAction {
             break
         }
         ($schedule -and $ScheduleState.ContainsKey($schedule)) {
-            $wanted = [string]$ScheduleState[$schedule]
+            $desired = $ScheduleState[$schedule]
+            $wanted = [string]$desired.State
+            $sinceMinutes = [int]$desired.MinutesSince
+            $grace = [int]$desired.StartGraceMinutes
             switch ($true) {
+                ($wanted -eq 'Up' -and $powerState -eq $script:PowerState.Deallocated -and $sinceMinutes -le $grace) {
+                    'Start', 'ShouldBeRunning', "Schedule '$schedule' started machines $sinceMinutes minute(s) ago and this one is deallocated, so the start did not take."
+                    break
+                }
                 ($wanted -eq 'Up' -and $powerState -eq $script:PowerState.Deallocated) {
-                    'Start', 'ShouldBeRunning', "Schedule '$schedule' has it up at this time and it is deallocated."
+                    'None', 'DownSinceTheStartWindow', "Schedule '$schedule' wants it up, but its start was $sinceMinutes minute(s) ago, past the $grace minute grace. A machine that has been down that long was turned off on purpose - see docs/decisions/0007."
                     break
                 }
                 ($wanted -eq 'Down' -and $powerState -eq $script:PowerState.Running) {
