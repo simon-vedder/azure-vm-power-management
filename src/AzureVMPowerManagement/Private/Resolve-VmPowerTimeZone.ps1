@@ -4,18 +4,24 @@ function Resolve-VmPowerTimeZone {
     A TimeZoneInfo for an id written in either form, whatever platform is asking.
 
     .DESCRIPTION
-    A schedule is authored on somebody's laptop and resolved inside an Azure Automation sandbox, and
-    those are not the same operating system. Measured on 2026-09-10 by running a probe runbook: the
-    PowerShell 7.2 sandbox is **Windows Server 2019**, not Linux, and it carries 141 time zones - all
-    of them Windows ids. `Europe/Zurich` does not resolve there. Neither does `Etc/UTC`. On macOS and
-    Linux the reverse is true for ids like `W. Europe Standard Time` on older runtimes.
+    Windows ids are the portable form, and that is not a preference - it is the only shape that
+    works in both places a schedule lives.
 
-    So the id is not normalised when a schedule is stored - it stays as it was written - and is
-    translated here, at the moment it is used. .NET 6 carries the CLDR mapping both ways, which is
-    what makes a catalogue portable between the two.
+    Measured with a probe runbook on 2026-09-10. The Azure Automation PowerShell 7.2 sandbox is
+    Windows Server 2019, build 17763, which is version 1809 - older than the 1903 that first shipped
+    ICU with Windows. .NET there runs in NLS mode (`GlobalizationMode.UseNls` is `True`), so the CLDR
+    data is absent and **both** conversion directions return false:
 
-    An earlier version of this project claimed both forms resolved in the sandbox. That was measured
-    on a Mac and generalised, and the first real runbook job disproved it.
+        IANA->Windows Europe/Zurich    ok=False
+        Windows->IANA W. Europe Standard Time  ok=False
+
+    So `Europe/Zurich` cannot be translated inside a sandbox, only rejected. A Windows id resolves
+    there, and also resolves on macOS and Linux, where .NET ships ICU and accepts both forms. That
+    asymmetry decides the storage format: schedules keep Windows ids.
+
+    This function still tries a translation, because on a machine with ICU it turns an IANA id into
+    something the sandbox can use, which is what makes `New-VmPowerSchedule -TimeZone 'Europe/Zurich'`
+    work at all.
 
     .PARAMETER Id
     A time zone id in the Windows form ('W. Europe Standard Time') or the IANA form
@@ -53,8 +59,14 @@ function Resolve-VmPowerTimeZone {
         catch { Write-Verbose "'$translated' is not known here either." }
     }
 
-    throw ("The time zone '$Id' cannot be resolved on this platform ($([System.Environment]::OSVersion.VersionString)), " +
-        'in either the Windows or the IANA form. Azure Automation runs PowerShell 7.2 on Windows Server, ' +
-        "which knows ids like 'W. Europe Standard Time'; a Mac or Linux machine knows 'Europe/Zurich'. " +
-        'Both are accepted and translated, so this id is wrong rather than in the wrong form.')
+    $hint = if ($Id -match '/') {
+        "'$Id' is an IANA id. This runtime has no CLDR data to translate it - Azure Automation runs " +
+        'on Windows Server 2019, where .NET falls back to NLS. Store the Windows form instead: ' +
+        "New-VmPowerSchedule normalises it for you when it runs on a machine that can, so re-create " +
+        'the schedule from a laptop rather than editing the variable by hand.'
+    }
+    else {
+        "'$Id' is not a time zone this runtime knows, in either form."
+    }
+    throw "Time zone: $hint (platform: $([System.Environment]::OSVersion.VersionString))"
 }

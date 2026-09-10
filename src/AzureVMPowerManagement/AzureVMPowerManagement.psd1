@@ -1,6 +1,6 @@
 @{
     RootModule           = 'AzureVMPowerManagement.psm1'
-    ModuleVersion        = '0.1.1'
+    ModuleVersion        = '0.1.2'
     CompatiblePSEditions = @('Core')
     GUID                 = '7914b234-b19b-463d-b50b-0c8298306fbf'
     Author               = 'Simon Vedder'

@@ -69,6 +69,12 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   it is translated where it is used - .NET 6 carries the CLDR mapping in both directions. A
   laptop-only measurement said the opposite and it reached a decision record before the first real
   job caught it.
+- *(observed)* **.NET in the sandbox runs in NLS mode, so there is no CLDR data and no time zone id
+  conversion at all.** `GlobalizationMode.UseNls` is `True`, and both `TryConvertIanaIdToWindowsId`
+  and `TryConvertWindowsIdToIanaId` return `False` for everything. Build 17763 is Windows Server
+  2019 version 1809, older than the 1903 that first shipped ICU with Windows. An IANA id can only be
+  rejected there, never translated, which is why schedules store the Windows form -
+  [ADR 0008](docs/decisions/0008-store-the-windows-time-zone-id.md). Measured 2026-09-10.
 - *(observed)* **The same variable has two shapes depending on how it is read.** Over ARM,
   `properties.value` is the raw JSON text. `Get-AutomationVariable` deserialises it first, so a JSON
   array arrives as objects. Code that reads a variable both ways - as this tool does, from a laptop

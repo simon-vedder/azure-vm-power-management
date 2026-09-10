@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2-preview] - 2026-09-10
+
+### Fixed
+
+- **A schedule stores the Windows time zone id.** `0.1.1-preview` tried to translate an IANA id
+  inside the sandbox, which cannot be done: .NET there runs in NLS mode with no CLDR data, so both
+  conversion directions return false and `Europe/Zurich` can only be rejected. The conversion now
+  happens where ICU is, on the way into the catalogue — [ADR 0008](docs/decisions/0008-store-the-windows-time-zone-id.md).
+- The catalogue that ships with the deployment uses Windows ids for the same reason; it is written
+  straight into an Automation variable without passing through the module.
+
 ## [0.1.1-preview] - 2026-09-10
 
 The first two runbook jobs in a real Automation Account, and what they broke.
@@ -72,6 +83,7 @@ until this has run a full loop inside a real Automation Account.
   as available there but was not exercised, and every setting the deployment writes is read through
   it. See [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
-[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.2...HEAD
+[0.1.2-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.2
 [0.1.1-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.1
 [0.1.0-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.0
