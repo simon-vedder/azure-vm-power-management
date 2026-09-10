@@ -1,0 +1,551 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "5409004181655503265"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "westeurope",
+      "metadata": {
+        "description": "Region for the resource group and everything in it."
+      }
+    },
+    "resourceGroupName": {
+      "type": "string",
+      "defaultValue": "rg-vm-power-management-weu"
+    },
+    "automationAccountName": {
+      "type": "string",
+      "defaultValue": "aa-vm-power-management-weu"
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "defaultValue": "log-vm-power-management-weu"
+    },
+    "logRetentionDays": {
+      "type": "int",
+      "defaultValue": 90,
+      "minValue": 30,
+      "maxValue": 730
+    },
+    "moduleVersion": {
+      "type": "string",
+      "metadata": {
+        "description": "AzureVMPowerManagement module version on the PowerShell Gallery."
+      }
+    },
+    "contentVersion": {
+      "type": "string",
+      "defaultValue": "",
+      "minLength": 0,
+      "metadata": {
+        "description": "Version stamp written to the module and runbook content links, System.Version form (up to four numeric parts, e.g. 0.1.0.1). Defaults to moduleVersion; bump it to force Automation to re-import unchanged URIs."
+      }
+    },
+    "modulePackageUri": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Override the module package source, for example a GitHub release asset. Empty means the Gallery URL for moduleVersion."
+      }
+    },
+    "runbookContentUri": {
+      "type": "string",
+      "defaultValue": "https://raw.githubusercontent.com/simon-vedder/azure-vm-power-management/main/src/runbooks/Invoke-AzureVMPowerManagementRunbook.ps1",
+      "metadata": {
+        "description": "Raw URL of the runbook wrapper. Pin to a tag in production."
+      }
+    },
+    "targetResourceGroupName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource group the identity gets the operator role on. Empty assigns the role at subscription scope."
+      }
+    },
+    "mode": {
+      "type": "string",
+      "defaultValue": "Report",
+      "allowedValues": [
+        "Report",
+        "Apply"
+      ],
+      "metadata": {
+        "description": "Runbook mode for the scheduled job: Report changes nothing, Apply removes findings."
+      }
+    },
+    "intervalMinutes": {
+      "type": "int",
+      "defaultValue": 60,
+      "minValue": 15,
+      "maxValue": 1440
+    },
+    "scheduleStartTime": {
+      "type": "string",
+      "defaultValue": "[dateTimeAdd(parameters('baseTime'), 'PT1H')]",
+      "metadata": {
+        "description": "First run of the schedule, ISO 8601. Must be at least five minutes in the future; defaults to one hour from deployment."
+      }
+    },
+    "scheduleTimeZone": {
+      "type": "string",
+      "defaultValue": "Etc/UTC"
+    },
+    "roleName": {
+      "type": "string",
+      "defaultValue": "AzureVMPowerManagement Operator"
+    },
+    "roleActions": {
+      "type": "array",
+      "defaultValue": [
+        "Microsoft.Resources/subscriptions/read",
+        "Microsoft.Resources/subscriptions/resourceGroups/read"
+      ],
+      "metadata": {
+        "description": "Exactly the actions the runbook needs. Reader is usually not enough and Contributor is always too much."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "Project": "azure-vm-power-management"
+      }
+    },
+    "baseTime": {
+      "type": "string",
+      "defaultValue": "[utcNow()]"
+    }
+  },
+  "variables": {
+    "effectiveModuleUri": "[if(empty(parameters('modulePackageUri')), format('https://www.powershellgallery.com/api/v2/package/AzureVMPowerManagement/{0}', parameters('moduleVersion')), parameters('modulePackageUri'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2024-03-01",
+      "name": "[parameters('resourceGroupName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]"
+    },
+    {
+      "type": "Microsoft.Authorization/roleDefinitions",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(subscription().id, parameters('roleName'))]",
+      "properties": {
+        "roleName": "[parameters('roleName')]",
+        "description": "Exactly what the AzureVMPowerManagement runbook calls, nothing else.",
+        "type": "CustomRole",
+        "assignableScopes": [
+          "[subscription().id]"
+        ],
+        "permissions": [
+          {
+            "actions": "[parameters('roleActions')]",
+            "notActions": [],
+            "dataActions": [],
+            "notDataActions": []
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "automation",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "automationAccountName": {
+            "value": "[parameters('automationAccountName')]"
+          },
+          "logAnalyticsWorkspaceName": {
+            "value": "[parameters('logAnalyticsWorkspaceName')]"
+          },
+          "logRetentionDays": {
+            "value": "[parameters('logRetentionDays')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "modulePackageUri": {
+            "value": "[variables('effectiveModuleUri')]"
+          },
+          "runbookContentUri": {
+            "value": "[parameters('runbookContentUri')]"
+          },
+          "contentVersion": "[if(empty(parameters('contentVersion')), createObject('value', parameters('moduleVersion')), createObject('value', parameters('contentVersion')))]",
+          "subscriptionIdForJobs": {
+            "value": "[subscription().subscriptionId]"
+          },
+          "mode": {
+            "value": "[parameters('mode')]"
+          },
+          "intervalMinutes": {
+            "value": "[parameters('intervalMinutes')]"
+          },
+          "scheduleStartTime": {
+            "value": "[parameters('scheduleStartTime')]"
+          },
+          "scheduleTimeZone": {
+            "value": "[parameters('scheduleTimeZone')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "2595986925781643277"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "automationAccountName": {
+              "type": "string"
+            },
+            "logAnalyticsWorkspaceName": {
+              "type": "string"
+            },
+            "logRetentionDays": {
+              "type": "int"
+            },
+            "tags": {
+              "type": "object"
+            },
+            "modulePackageUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Where the AzureVMPowerManagement module package comes from. PowerShell Gallery URL by default."
+              }
+            },
+            "runbookContentUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Raw URL of the runbook script. Pinned to a tag or commit in production."
+              }
+            },
+            "contentVersion": {
+              "type": "string",
+              "metadata": {
+                "description": "Version stamp for the module package and runbook content. Change it to force a re-import."
+              }
+            },
+            "subscriptionIdForJobs": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string"
+            },
+            "intervalMinutes": {
+              "type": "int"
+            },
+            "scheduleStartTime": {
+              "type": "string"
+            },
+            "scheduleTimeZone": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('logAnalyticsWorkspaceName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": "[parameters('logRetentionDays')]",
+                "features": {
+                  "enableLogAccessUsingOnlyResourcePermissions": true
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Automation/automationAccounts",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('automationAccountName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "sku": {
+                  "name": "Basic"
+                },
+                "publicNetworkAccess": true,
+                "disableLocalAuth": true
+              }
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]",
+              "name": "to-log-analytics",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
+                "logs": [
+                  {
+                    "category": "JobLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "JobStreams",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AuditEvent",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Automation/automationAccounts/powerShell72Modules",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('automationAccountName'), 'AzureVMPowerManagement')]",
+              "properties": {
+                "contentLink": {
+                  "uri": "[parameters('modulePackageUri')]",
+                  "version": "[parameters('contentVersion')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Automation/automationAccounts/runbooks",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('automationAccountName'), 'Invoke-AzureVMPowerManagementRunbook')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "runbookType": "PowerShell72",
+                "logProgress": false,
+                "logVerbose": false,
+                "description": "Decides which Azure VMs should be off, proves what that saved, and delegates the power operation to Azure.",
+                "publishContentLink": {
+                  "uri": "[parameters('runbookContentUri')]",
+                  "version": "[parameters('contentVersion')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]",
+                "[resourceId('Microsoft.Automation/automationAccounts/powerShell72Modules', parameters('automationAccountName'), 'AzureVMPowerManagement')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Automation/automationAccounts/schedules",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('automationAccountName'), 'run-vm-power-management')]",
+              "properties": {
+                "description": "[format('Runs the AzureVMPowerManagement runbook in {0} mode.', parameters('mode'))]",
+                "frequency": "Minute",
+                "interval": "[parameters('intervalMinutes')]",
+                "startTime": "[parameters('scheduleStartTime')]",
+                "timeZone": "[parameters('scheduleTimeZone')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Automation/automationAccounts/jobSchedules",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('automationAccountName'), guid(resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName')), parameters('mode'), 'Invoke-AzureVMPowerManagementRunbook'))]",
+              "properties": {
+                "schedule": {
+                  "name": "run-vm-power-management"
+                },
+                "runbook": {
+                  "name": "Invoke-AzureVMPowerManagementRunbook"
+                },
+                "parameters": {
+                  "SubscriptionId": "[parameters('subscriptionIdForJobs')]",
+                  "Mode": "[parameters('mode')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]",
+                "[resourceId('Microsoft.Automation/automationAccounts/runbooks', parameters('automationAccountName'), 'Invoke-AzureVMPowerManagementRunbook')]",
+                "[resourceId('Microsoft.Automation/automationAccounts/schedules', parameters('automationAccountName'), 'run-vm-power-management')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "principalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName')), '2023-11-01', 'full').identity.principalId]"
+            },
+            "automationAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]"
+            },
+            "workspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    },
+    {
+      "condition": "[empty(parameters('targetResourceGroupName'))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "operator-role-assignment-subscription",
+      "location": "[deployment().location]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "principalId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation'), '2025-04-01').outputs.principalId.value]"
+          },
+          "roleDefinitionId": {
+            "value": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('roleName')))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "12823784161259104349"
+            }
+          },
+          "parameters": {
+            "principalId": {
+              "type": "string"
+            },
+            "roleDefinitionId": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(subscription().id, parameters('principalId'), parameters('roleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[parameters('roleDefinitionId')]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation')]",
+        "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('roleName')))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('targetResourceGroupName')))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "operator-role-assignment-resourcegroup",
+      "resourceGroup": "[parameters('targetResourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "principalId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation'), '2025-04-01').outputs.principalId.value]"
+          },
+          "roleDefinitionId": {
+            "value": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('roleName')))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "14261550569447066132"
+            }
+          },
+          "parameters": {
+            "principalId": {
+              "type": "string"
+            },
+            "roleDefinitionId": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, parameters('principalId'), parameters('roleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[parameters('roleDefinitionId')]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation')]",
+        "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('roleName')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "automationAccountId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation'), '2025-04-01').outputs.automationAccountId.value]"
+    },
+    "principalId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation'), '2025-04-01').outputs.principalId.value]"
+    },
+    "roleDefinitionId": {
+      "type": "string",
+      "value": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('roleName')))]"
+    },
+    "workspaceId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'automation'), '2025-04-01').outputs.workspaceId.value]"
+    }
+  }
+}

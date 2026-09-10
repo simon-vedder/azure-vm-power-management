@@ -1,95 +1,84 @@
-# Azure VM Power Management
+<p align="center"><img src="docs/images/hero.png" alt="AzureVMPowerManagement: Tag a VM with the schedule it belongs to. The controller does the rest, and shows you what it did." width="100%"></p>
 
-![PowerShell](https://img.shields.io/badge/PowerShell-7.2-5391FE?logo=powershell&logoColor=white)
-![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
-![Azure Automation](https://img.shields.io/badge/Azure-Automation-0078D4?logo=microsoftazure&logoColor=white)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Last commit](https://img.shields.io/github/last-commit/simon-vedder/azure-vm-power-management)
+<p align="center">
+  <a href="https://github.com/simon-vedder/azure-vm-power-management/actions/workflows/ci.yml"><img src="https://github.com/simon-vedder/azure-vm-power-management/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.powershellgallery.com/packages/AzureVMPowerManagement"><img src="https://img.shields.io/powershellgallery/v/AzureVMPowerManagement?include_prereleases&label=PowerShell%20Gallery" alt="PowerShell Gallery"></a>
+  <img src="https://img.shields.io/badge/PowerShell-7.2%2B-5391FE?logo=powershell&logoColor=white" alt="PowerShell 7.2+">
+  <img src="https://img.shields.io/badge/access-read--only%20by%20default-16a34a" alt="Read-only by default">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
+</p>
 
-**Tag-driven start/stop for Azure VMs — schedule power by putting an `AutoShutdown` tag on the VM.**
+**Tag a VM with the schedule it belongs to. The controller does the rest, and shows you what it did.**
 
-An Azure Automation runbook decides, per VM and per hour, whether to start or stop it — based
-entirely on tags. No per-VM schedules to maintain, no GUI, no lists to keep in sync. Tag a VM and
-it's managed; remove the tag and it's not. Runs least-privilege via a System-Assigned identity and
-a custom role scoped to exactly read + start + deallocate.
+Decides which Azure VMs should be off, proves what that saved, and delegates the power operation to Azure.
 
-## How it works
+## Why
 
-The runbook runs **hourly**. Each run it looks at every VM carrying an `AutoShutdown` tag, works out
-the target action for the current hour, and starts or stops accordingly. VMs without the tag are
-ignored.
+- What Microsoft ships for this, and where it stops.
+- What the community has, and what it does not cover.
+- The population this is for.
 
-## Tag schema
+## Features
 
-| Tag | Example | Meaning |
-|---|---|---|
-| `AutoShutdown` | `8-18` | Start at 08:00, stop at 18:00 (24h). **Required** to manage the VM. |
-| `AutoShutdown-TimeZone` | `W. Europe Standard Time` | Time zone the hours refer to. Falls back to the runbook's `TimeZone` param. |
-| `AutoShutdown-SkipUntil` | `2026-08-01` | Skip this VM until the given date. |
-| `AutoShutdown-ExcludeOn` | `2026-07-20` | Skip on this specific date only. |
-| `AutoShutdown-ExcludeDays` | `Saturday,Sunday` | Skip on these weekdays. |
+- **Read-only by default.** `Get-VmPowerPlan` needs read scopes only and returns objects, not a log.
+- **Rules you can read.** Every decision is a pure function with a test on a fixture.
+- **Remove with a safety net.** `Remove-VmPowerPlan` prompts per object, writes a JSON backup before
+  it acts, and refuses anything marked protected.
+- **Honest about limits.** [When not to use this](docs/when-not-to-use-this.md) and
+  [KNOWN-ISSUES.md](KNOWN-ISSUES.md) list every sharp edge found.
 
-## Layout
+## Quick start
 
-```
-runbook/VM-PowerManagement.ps1   # the tag-driven runbook (PowerShell 7.2, Managed Identity)
-gui/PowerMate.ps1                # OPTIONAL end-user WPF GUI (source only) — see below
-arm/deploy.json                  # ALTERNATIVE self-contained deploy — creates the Automation Account + identity + role
-terraform/
-  main.tf         # automation account, hourly schedule, runbook, least-privilege role + assignment
-  gui.tf          # OPTIONAL identity + role for the on-VM GUI — delete for runbook-only
-  variables.tf
-  outputs.tf
-  example-vm.tf   # OPTIONAL demo VM tagged with the schema — delete for a runbook-only deploy
+```powershell
+Install-Module AzureVMPowerManagement -AllowPrerelease
+
+# 1. Look. Nothing changes.
+Get-VmPowerPlan | Format-Table Name, Severity, Reason
+
+# 2. Pick and remove, with a prompt per object and a backup file. -WhatIf shows the plan.
+Get-VmPowerPlan -MinimumSeverity High | Remove-VmPowerPlan -WhatIf
+Get-VmPowerPlan | Out-ConsoleGridView -PassThru | Remove-VmPowerPlan
 ```
 
-## Deploy
+## Safety
+
+The tool proposes, you decide.
+`Remove-VmPowerPlan` accepts only objects that `Get-VmPowerPlan` produced, asks before every object
+(`ConfirmImpact = 'High'`), writes every object to a JSON file before the call, and reports
+protected objects instead of touching them. `-WhatIf` works everywhere.
+
+## Deploy the automation
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsimon-vedder%2Fazure-vm-power-management%2Fmain%2Fdeploy%2Fazuredeploy.json)
 
 ```bash
-cd terraform
-terraform init
-terraform apply -var="subscription_id=<your-sub-id>"
+az deployment sub create -l westeurope -f deploy/main.bicep -p moduleVersion=0.1.0
 ```
 
-Then tag a VM (`AutoShutdown = "8-18"`) and it's picked up on the next hourly run. The included
-`example-vm.tf` shows a correctly-tagged VM; if you keep it, supply `example_vm_admin_password` via a
-tfvars file or Key Vault (never commit it), or delete the file for a runbook-only deployment.
-
-**ARM alternative (`arm/deploy.json`):** a self-contained template — it creates a dedicated Automation
-Account with a system-assigned identity, deploys the runbook + hourly schedule, and grants the identity
-the built-in **Desktop Virtualization Power On Off Contributor** role (start/stop/deallocate only). The
-difference from the Terraform above: the ARM path uses that built-in role, the Terraform uses a custom
-least-privilege role. Pick whichever fits your stack.
+One subscription-scope deployment creates an Automation Account with a system-assigned identity,
+a least-privilege custom role, the module import from the PowerShell Gallery, the runbook and its
+schedule, plus a Log Analytics workspace for job logs. Details in [deploy/README.md](deploy/README.md).
 
 ## Permissions
 
-The runbook authenticates as the Automation Account's System-Assigned identity. The Terraform grants
-it a custom **VM Power Manager** role with only:
+```
+<exact Graph scopes or RBAC actions for the read path>
+```
 
-- `Microsoft.Compute/virtualMachines/read`
-- `Microsoft.Compute/virtualMachines/start/action`
-- `Microsoft.Compute/virtualMachines/deallocate/action`
+The write path adds `<...>` and is only requested with the switch that enables it.
 
-**Multi-subscription:** the runbook loops every subscription the identity can see. To manage VMs
-across subscriptions, assign the role to the identity at each target subscription — or at a
-management group scope — not just the one it's deployed in.
+## Status
 
-## Optional: PowerMate GUI (`gui/PowerMate.ps1`)
+Pre-release `0.1.0-preview`. What is verified is in [docs/verification.md](docs/verification.md);
+what is not is in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
-A small WPF tool that runs **on a VM** and gives end-users self-service over that VM's schedule:
-"Skip for Today" (sets `AutoShutdown-ExcludeOn`), "Clear Today Skip", and "Deallocate Now". It
-authenticates via the VM's managed identity (`gui.tf` provisions a least-privilege one) and reads/writes
-the VM's own tags. Shipped as **source only** — no compiled `.exe`; run it directly or compile with
-PS2EXE yourself.
+## Documentation
 
-> **Adapted for V2.** PowerMate now reads the stop hour from the VM's `AutoShutdown` tag (e.g. `8-18`
-> → 18:00) instead of a hard-coded time, shows the schedule, and treats a missing `AutoShutdown` tag as
-> "not managed" (the old permanent-`AutoShutdown-Exclude` tag the runbook never read is gone). The
-> "skip today" / "clear" / "deallocate" flows are unchanged. It's a WPF app that only runs on Windows —
-> **test it on a Windows VM before publishing.**
+- Tool page: [simonvedder.com/tools/vm-power-management](https://simonvedder.com/tools/vm-power-management)
+- [Command reference](docs/commands) generated from the comment-based help
+- [Verification log](docs/verification.md), [known issues](KNOWN-ISSUES.md), [when not to use this](docs/when-not-to-use-this.md)
+- [Architecture decisions](docs/decisions), [releasing](docs/release.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), [changelog](CHANGELOG.md)
 
-## Requirements
+## License
 
-- Azure Automation account with PowerShell 7.2 runtime and the Az modules available.
-- Terraform + the `azurerm` provider.
-- The optional GUI needs a Windows VM with a managed identity and access to IMDS (169.254.169.254).
+MIT.

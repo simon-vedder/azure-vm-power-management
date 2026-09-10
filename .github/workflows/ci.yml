@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  powershell:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/powershell/Modules
+          key: psmodules-${{ runner.os }}-${{ hashFiles('src/AzureVMPowerManagement/AzureVMPowerManagement.psd1') }}
+
+      - name: Install PowerShell modules
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          foreach ($m in 'PSScriptAnalyzer', 'Pester') {
+            if (-not (Get-Module -ListAvailable $m)) { Install-Module $m -Force -Scope CurrentUser -SkipPublisherCheck }
+          }
+          # Import-Module needs every RequiredModules entry present; read them from the manifest.
+          $manifest = Import-PowerShellDataFile ./src/AzureVMPowerManagement/AzureVMPowerManagement.psd1
+          foreach ($required in @($manifest.RequiredModules)) {
+            $name = if ($required -is [hashtable]) { $required.ModuleName } else { [string]$required }
+            if (-not $name) { continue }
+            if (-not (Get-Module -ListAvailable $name)) { Install-Module $name -Force -Scope CurrentUser }
+          }
+
+      - name: Validate manifest
+        shell: pwsh
+        run: Test-ModuleManifest ./src/AzureVMPowerManagement/AzureVMPowerManagement.psd1 | Format-List Name, Version, PowerShellVersion
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./src -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($results) {
+            $results | Format-Table -AutoSize Severity, ScriptName, Line, RuleName, Message
+            throw "PSScriptAnalyzer found $($results.Count) issue(s)."
+          }
+          Write-Host 'Clean.'
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'TestResults.xml'
+          $config.Run.Exit = $true
+          Invoke-Pester -Configuration $config
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults.xml
+
+  bicep:
+    name: Bicep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned: different Bicep versions emit different templates, which would make the drift
+      # check below fail for the wrong reason. Bump here and rebuild azuredeploy.json together.
+      - name: Install Bicep 0.46.1
+        run: az bicep install --version v0.46.1
+
+      - name: Build and compare the compiled template
+        run: |
+          az bicep build -f deploy/main.bicep --outfile /tmp/azuredeploy.json
+          if [ ! -f deploy/azuredeploy.json ]; then
+            echo "deploy/azuredeploy.json is missing; run: az bicep build -f deploy/main.bicep --outfile deploy/azuredeploy.json (Bicep 0.46.1)"
+            exit 1
+          fi
+          strip='walk(if type == "object" then del(.metadata) | del(.templateHash) else . end)'
+          if ! diff -q <(jq -S "$strip" /tmp/azuredeploy.json) <(jq -S "$strip" deploy/azuredeploy.json) > /dev/null; then
+            echo "deploy/azuredeploy.json is stale; run: az bicep build -f deploy/main.bicep --outfile deploy/azuredeploy.json (Bicep 0.46.1)"
+            diff <(jq -S "$strip" /tmp/azuredeploy.json) <(jq -S "$strip" deploy/azuredeploy.json) | head -40
+            exit 1
+          fi
+          echo "azuredeploy.json matches main.bicep"
