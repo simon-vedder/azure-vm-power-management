@@ -33,6 +33,12 @@ param intervalMinutes int
 param scheduleStartTime string
 param scheduleTimeZone string
 
+@description('Deploy the workbook that shows what the controller decided and why.')
+param deployWorkbook bool
+
+@description('The workbook definition, as JSON. main.bicep loads it from deploy/workbook.json.')
+param workbookDefinition string
+
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: logAnalyticsWorkspaceName
   location: location
@@ -219,6 +225,23 @@ resource job 'Microsoft.Automation/automationAccounts/jobSchedules@2023-11-01' =
   dependsOn: [
     settingVariables
   ]
+}
+
+// The workbook reads the runbook's own job streams, so there is no data collection rule, no custom
+// table and no second copy of the truth that could disagree with the job log. serializedData is the
+// definition from deploy/workbook.json, loaded rather than pasted so the two cannot drift.
+resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = if (deployWorkbook) {
+  name: guid(automationAccount.id, 'vm-power-management-workbook')
+  location: location
+  tags: tags
+  kind: 'shared'
+  properties: {
+    displayName: 'VM power management'
+    category: 'workbook'
+    sourceId: workspace.id
+    serializedData: workbookDefinition
+    version: '1.0'
+  }
 }
 
 output principalId string = automationAccount.identity.principalId

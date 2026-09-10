@@ -1,0 +1,102 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# VM power management\n\nEvery decision the controller made, including the ones where it did nothing and why. Read from the runbook's own job streams, so this and the job log cannot disagree.\n\n**No money figure appears here on purpose.** Turning deallocations into a currency amount needs live pricing per size, region and licence, and a number that looks precise and is guessed is worse than no number. What is shown is what happened."
+      },
+      "name": "header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"JobStreams\" and ResourceProvider == \"MICROSOFT.AUTOMATION\"\n| where RunbookName_s == \"Invoke-AzureVMPowerManagementRunbook\"\n| where ResultDescription startswith \"PMREC \"\n| extend rec = parse_json(substring(ResultDescription, 6))\n| extend\n    Machine        = tostring(rec.vm),\n    ResourceGroup  = tostring(rec.rg),\n    Size           = tostring(rec.size),\n    PowerState     = tostring(rec.state),\n    Schedule       = tostring(rec.sched),\n    Action         = tostring(rec.action),\n    Reason         = tostring(rec.reason),\n    Status         = tostring(rec.status),\n    Armed          = tobool(rec.armed),\n    RunId          = tostring(rec.run),\n    RunAt          = todatetime(rec.t)\n| summarize arg_max(TimeGenerated, Armed, RunAt) by RunId\n| top 1 by RunAt desc\n| project [\"Last run\"] = RunAt, [\"Armed\"] = iff(Armed, \"yes - it acts\", \"no - it only reports\")",
+        "size": 0,
+        "title": "Is it armed?",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "timeContext": {
+          "durationMs": 604800000
+        }
+      },
+      "name": "is-it-armed?"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"JobStreams\" and ResourceProvider == \"MICROSOFT.AUTOMATION\"\n| where RunbookName_s == \"Invoke-AzureVMPowerManagementRunbook\"\n| where ResultDescription startswith \"PMREC \"\n| extend rec = parse_json(substring(ResultDescription, 6))\n| extend\n    Machine        = tostring(rec.vm),\n    ResourceGroup  = tostring(rec.rg),\n    Size           = tostring(rec.size),\n    PowerState     = tostring(rec.state),\n    Schedule       = tostring(rec.sched),\n    Action         = tostring(rec.action),\n    Reason         = tostring(rec.reason),\n    Status         = tostring(rec.status),\n    Armed          = tobool(rec.armed),\n    RunId          = tostring(rec.run),\n    RunAt          = todatetime(rec.t)\n| where Action != \"None\"\n| summarize Machines = dcount(Machine), Runs = dcount(RunId) by Action, Status\n| order by Machines desc",
+        "size": 1,
+        "title": "What it did, last 7 days",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart"
+      },
+      "name": "what-it-did,-last-7-days"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"JobStreams\" and ResourceProvider == \"MICROSOFT.AUTOMATION\"\n| where RunbookName_s == \"Invoke-AzureVMPowerManagementRunbook\"\n| where ResultDescription startswith \"PMREC \"\n| extend rec = parse_json(substring(ResultDescription, 6))\n| extend\n    Machine        = tostring(rec.vm),\n    ResourceGroup  = tostring(rec.rg),\n    Size           = tostring(rec.size),\n    PowerState     = tostring(rec.state),\n    Schedule       = tostring(rec.sched),\n    Action         = tostring(rec.action),\n    Reason         = tostring(rec.reason),\n    Status         = tostring(rec.status),\n    Armed          = tobool(rec.armed),\n    RunId          = tostring(rec.run),\n    RunAt          = todatetime(rec.t)\n| where Reason in (\"StoppedNotDeallocated\", \"StrandedButNotOnboarded\")\n| summarize arg_max(TimeGenerated, *) by Machine\n| project Machine, ResourceGroup, Size, Reason, [\"Onboarded\"] = iff(Reason == \"StoppedNotDeallocated\", \"yes\", \"no - reported only\"), [\"Last seen\"] = TimeGenerated\n| order by ['Last seen'] desc",
+        "size": 1,
+        "title": "Powered off and still billed",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "powered-off-and-still-billed"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"JobStreams\" and ResourceProvider == \"MICROSOFT.AUTOMATION\"\n| where RunbookName_s == \"Invoke-AzureVMPowerManagementRunbook\"\n| where ResultDescription startswith \"PMREC \"\n| extend rec = parse_json(substring(ResultDescription, 6))\n| extend\n    Machine        = tostring(rec.vm),\n    ResourceGroup  = tostring(rec.rg),\n    Size           = tostring(rec.size),\n    PowerState     = tostring(rec.state),\n    Schedule       = tostring(rec.sched),\n    Action         = tostring(rec.action),\n    Reason         = tostring(rec.reason),\n    Status         = tostring(rec.status),\n    Armed          = tobool(rec.armed),\n    RunId          = tostring(rec.run),\n    RunAt          = todatetime(rec.t)\n| where Action == \"None\"\n| summarize Machines = dcount(Machine) by Reason\n| order by Machines desc",
+        "size": 0,
+        "title": "Why it did nothing",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "piechart"
+      },
+      "name": "why-it-did-nothing"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"JobStreams\" and ResourceProvider == \"MICROSOFT.AUTOMATION\"\n| where RunbookName_s == \"Invoke-AzureVMPowerManagementRunbook\"\n| where ResultDescription startswith \"PMREC \"\n| extend rec = parse_json(substring(ResultDescription, 6))\n| extend\n    Machine        = tostring(rec.vm),\n    ResourceGroup  = tostring(rec.rg),\n    Size           = tostring(rec.size),\n    PowerState     = tostring(rec.state),\n    Schedule       = tostring(rec.sched),\n    Action         = tostring(rec.action),\n    Reason         = tostring(rec.reason),\n    Status         = tostring(rec.status),\n    Armed          = tobool(rec.armed),\n    RunId          = tostring(rec.run),\n    RunAt          = todatetime(rec.t)\n| where Status in (\"Skipped\", \"WhatIf\", \"Failed\")\n| summarize arg_max(TimeGenerated, *) by Machine\n| project Machine, ResourceGroup, Action, Status, Reason, [\"Last seen\"] = TimeGenerated\n| order by ['Last seen'] desc",
+        "size": 0,
+        "title": "Skipped by a guard",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "skipped-by-a-guard"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AzureDiagnostics\n| where Category == \"JobStreams\" and ResourceProvider == \"MICROSOFT.AUTOMATION\"\n| where RunbookName_s == \"Invoke-AzureVMPowerManagementRunbook\"\n| where ResultDescription startswith \"PMREC \"\n| extend rec = parse_json(substring(ResultDescription, 6))\n| extend\n    Machine        = tostring(rec.vm),\n    ResourceGroup  = tostring(rec.rg),\n    Size           = tostring(rec.size),\n    PowerState     = tostring(rec.state),\n    Schedule       = tostring(rec.sched),\n    Action         = tostring(rec.action),\n    Reason         = tostring(rec.reason),\n    Status         = tostring(rec.status),\n    Armed          = tobool(rec.armed),\n    RunId          = tostring(rec.run),\n    RunAt          = todatetime(rec.t)\n| project TimeGenerated, Machine, ResourceGroup, PowerState, Schedule, Action, Reason, Status, Size\n| order by TimeGenerated desc\n| take 200",
+        "size": 1,
+        "title": "Every decision, newest first",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "every-decision,-newest-first"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Reading this\n\n**Powered off and still billed** is the panel that pays for the tool. A machine in `stopped` rather than `deallocated` is powered off and still charged for compute. Rows marked *reported only* carry no schedule tag, so nothing was done to them \u2014 they are the list of machines nobody has onboarded.\n\n**Why it did nothing** is not noise. `MatchesSchedule` means the machine was already right. `DownSinceTheStartWindow` means somebody turned it off and the controller left it that way. `ScheduleNotInCatalogue` means a tag names a schedule that does not exist \u2014 that one is a typo, and the policy that ships with the deployment catches it earlier.\n\nJob data is kept for 30 days by Azure Automation, so this window is what there is."
+      },
+      "name": "footer"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": []
+}

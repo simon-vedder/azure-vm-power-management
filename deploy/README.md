@@ -59,6 +59,30 @@ schedule — see [ADR 0005](../docs/decisions/0005-json-is-the-storage-format-no
 | Custom role `roleName` with `roleActions` | exactly what the runbook needs |
 | Role assignment on `targetResourceGroupName`, or the subscription when empty | least privilege |
 
+## The workbook
+
+`workbook.json`, deployed against the Log Analytics workspace and loaded into the template with
+`loadTextContent` so the file and the deployment cannot drift.
+
+It reads the runbook's **own job streams** — no data collection rule, no custom table, no second
+copy of the truth that could disagree with the job log. The runbook writes one machine-readable line
+per machine, prefixed `PMREC`, alongside the readable one.
+
+| Panel | What it answers |
+|---|---|
+| Is it armed? | Whether the last run acted or only reported |
+| Powered off and still billed | The machines in `stopped` rather than `deallocated` |
+| Why it did nothing | The reasons behind every skip, as a share |
+| Skipped by a guard | Blast radius, dwell, protected, failed |
+| Every decision, newest first | The raw log, 200 rows |
+
+**No money figure appears in it, on purpose.** Turning deallocations into currency needs live
+pricing per size, region and licence, and a number that looks precise and is guessed is worse than
+no number. What it shows is what happened.
+
+Job data is kept for 30 days by Azure Automation, so that is the window. Set `deployWorkbook=false`
+to skip it.
+
 ## The policies
 
 Two definitions and their assignments, both generated from `scheduleCatalog` so they cannot drift
