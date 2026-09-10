@@ -6,5 +6,16 @@
 *.tfvars
 crash.log
 
+# PowerShell / build
+TestResults.xml
+*.nupkg
+dist/
+*-backup-*.json
+
+# Bicep parameters carry tenant detail
+deploy/**/*.local.*
+deploy/**/*.bicepparam
+!deploy/**/example.bicepparam
+
 # macOS
 .DS_Store
