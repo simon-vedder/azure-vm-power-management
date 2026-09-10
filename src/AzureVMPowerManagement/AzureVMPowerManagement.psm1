@@ -26,6 +26,15 @@ $script:ScheduleActions = @('Start', 'Deallocate')
 # Monday first: the working week is what these schedules are about.
 $script:WeekDayNames = @('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
 
+# The two halves of the catalogue, and who owns each. The deployment overwrites the first on every
+# run and never touches the second; Set-VmPowerSchedule writes only the second. See ADR 0005.
+$script:CatalogVariable = @{
+    Deployment = 'PM_ScheduleCatalog'
+    Custom     = 'PM_ScheduleCatalogCustom'
+}
+
+$script:AutomationApiVersion = '2024-10-23'
+
 $script:MonthNames = @(
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'

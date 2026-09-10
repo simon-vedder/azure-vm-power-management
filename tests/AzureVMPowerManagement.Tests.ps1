@@ -647,3 +647,172 @@ Describe 'The schedule rule' {
         }
     }
 }
+
+Describe 'The catalogue in an Automation Account' {
+    BeforeAll {
+        $accountArgs = @{ ResourceGroupName = 'rg-vmpower'; AutomationAccountName = 'aa-vmpower' }
+
+        function New-Stored {
+            param([string]$Name, [string]$Span = '07:00-19:00')
+            @{ name = $Name; timeZone = 'UTC'; weekdays = $Span; minimumDwellMinutes = 30 }
+        }
+    }
+
+    Context 'reading' {
+        It 'merges both variables and says where each schedule came from' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith {
+                if ($VariableName -eq 'PM_ScheduleCatalog') { @(New-Stored 'shipped-one') } else { @(New-Stored 'mine') }
+            }
+            $catalog = @(Get-VmPowerSchedule @accountArgs)
+            $catalog.Count | Should -Be 2
+            ($catalog | Where-Object Name -eq 'shipped-one').Source | Should -Be 'Deployment'
+            ($catalog | Where-Object Name -eq 'mine').Source | Should -Be 'Custom'
+        }
+
+        It 'lets a custom entry win over a shipped one of the same name' {
+            # An example can be overridden without being edited, and a redeployment does not fight it.
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith {
+                if ($VariableName -eq 'PM_ScheduleCatalog') { @(New-Stored 'office-hours' '08:00-17:00') } else { @(New-Stored 'office-hours' '06:00-22:00') }
+            }
+            $catalog = @(Get-VmPowerSchedule @accountArgs)
+            $catalog.Count | Should -Be 1
+            $catalog[0].Source | Should -Be 'Custom'
+            ($catalog[0].Actions | Where-Object Action -eq 'Start').At | Should -Be '06:00'
+        }
+
+        It 'returns nothing when neither variable exists yet' {
+            # Version one of every deployment. Treating a missing variable as a failure would mean
+            # the first run of a new deployment fails for the most ordinary reason there is.
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @() }
+            @(Get-VmPowerSchedule @accountArgs).Count | Should -Be 0
+        }
+
+        It 'refuses a stored entry that no longer validates rather than passing it on' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith {
+                @(@{ name = 'Broken-Name'; timeZone = 'UTC'; weekdays = '07:00-19:00' })
+            }
+            { Get-VmPowerSchedule @accountArgs } | Should -Throw -ExpectedMessage '*not usable*'
+        }
+
+        It 'can read one variable on its own' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @(New-Stored 'mine') }
+            $null = Get-VmPowerSchedule @accountArgs -Source Custom
+            Should -Invoke Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 1 -Exactly
+        }
+    }
+
+    Context 'the JSON round trip' {
+        It 'survives being written and read back unchanged' {
+            # Exactly what Set-VmPowerCatalogVariable writes and Get-VmPowerCatalogVariable reads.
+            $original = @(
+                New-VmPowerSchedule -Name office-hours-ch -TimeZone 'Europe/Zurich' -Weekdays '07:30-18:30' -ExceptDate '2026-12-24'
+                New-VmPowerSchedule -Name always-on -TimeZone UTC -Start '06:00'
+            )
+            $json = ConvertTo-Json -InputObject @($original) -Depth 8 -Compress
+            $back = @($json | ConvertFrom-Json | ForEach-Object { & $module { param($x) Expand-VmPowerSchedule -Schedule $x } $_ })
+            (ConvertTo-Json -InputObject @($back) -Depth 8 -Compress) | Should -Be $json
+        }
+
+        It 'keeps a one-schedule catalogue a list' {
+            # Without the comma, an array of one collapses to a bare object and the reader gets a
+            # schedule where it expects a list.
+            $json = ConvertTo-Json -InputObject @(, (New-VmPowerSchedule -Name only-one -TimeZone UTC -Start '06:00')) -Depth 8 -Compress
+            $json | Should -Match '^\['
+        }
+
+        It 'copes with a value Automation encoded a second time' {
+            # Verified locally on 2026-09-10: one parse of a double-encoded value yields a String,
+            # two yield the list. Which shape Automation actually stores is on the lab list.
+            $inner = ConvertTo-Json -InputObject @(@{ name = 'lab'; timeZone = 'UTC'; weekdays = '07:00-19:00' }) -Depth 8 -Compress
+            $doubled = ConvertTo-Json -InputObject $inner -Compress
+            $once = $doubled | ConvertFrom-Json
+            $once | Should -BeOfType [string]
+            @($once | ConvertFrom-Json).Count | Should -Be 1
+        }
+    }
+
+    Context 'writing' {
+        It 'never writes the variable the deployment owns' {
+            # The whole reason there are two variables.
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @() }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            New-VmPowerSchedule -Name a-schedule -TimeZone UTC -Weekdays '07:00-19:00' |
+                Set-VmPowerSchedule @accountArgs -Confirm:$false
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter {
+                $VariableName -eq 'PM_ScheduleCatalogCustom'
+            }
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 0 -ParameterFilter {
+                $VariableName -eq 'PM_ScheduleCatalog'
+            }
+        }
+
+        It 'keeps what is already there and adds to it' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @(New-Stored 'existing') }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            New-VmPowerSchedule -Name added -TimeZone UTC -Weekdays '07:00-19:00' |
+                Set-VmPowerSchedule @accountArgs -Confirm:$false
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter {
+                @($Catalog).Count -eq 2 -and @($Catalog.Name) -contains 'existing' -and @($Catalog.Name) -contains 'added'
+            }
+        }
+
+        It 'replaces an entry of the same name rather than storing it twice' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @(New-Stored 'office-hours' '08:00-17:00') }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            New-VmPowerSchedule -Name office-hours -TimeZone UTC -Weekdays '06:00-22:00' |
+                Set-VmPowerSchedule @accountArgs -Confirm:$false
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter {
+                @($Catalog).Count -eq 1 -and ($Catalog[0].Actions | Where-Object Action -eq 'Start').At -eq '06:00'
+            }
+        }
+
+        It 'stores nothing at all when one of several schedules does not validate' {
+            # A run that stored three and threw on the fourth would leave a catalogue nobody asked for.
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @() }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            $batch = @(
+                @{ name = 'fine-one'; timeZone = 'UTC'; weekdays = '07:00-19:00' }
+                @{ name = 'Bad-One'; timeZone = 'UTC'; weekdays = '07:00-19:00' }
+            )
+            { $batch | Set-VmPowerSchedule @accountArgs -Confirm:$false } | Should -Throw -ExpectedMessage '*Nothing was stored*'
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 0
+        }
+
+        It 'writes nothing under -WhatIf' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @() }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            New-VmPowerSchedule -Name a-schedule -TimeZone UTC -Weekdays '07:00-19:00' |
+                Set-VmPowerSchedule @accountArgs -WhatIf
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 0
+        }
+    }
+
+    Context 'removing' {
+        It 'removes only what was asked for' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith {
+                @((New-Stored 'keep-me'), (New-Stored 'drop-me'))
+            }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            Remove-VmPowerSchedule -Name drop-me @accountArgs -Confirm:$false
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 1 -ParameterFilter {
+                @($Catalog).Count -eq 1 -and $Catalog[0].Name -eq 'keep-me'
+            }
+        }
+
+        It 'warns rather than writing when the name is not in the custom catalogue' {
+            # A schedule from the deployment cannot be removed here: the next deployment would put
+            # it back and the removal would look like it had failed.
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @(New-Stored 'mine') }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            Remove-VmPowerSchedule -Name from-the-deployment @accountArgs -Confirm:$false -WarningAction SilentlyContinue
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 0
+        }
+
+        It 'writes nothing under -WhatIf' {
+            Mock -CommandName Get-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { @(New-Stored 'drop-me') }
+            Mock -CommandName Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -MockWith { }
+            Remove-VmPowerSchedule -Name drop-me @accountArgs -WhatIf
+            Should -Invoke Set-VmPowerCatalogVariable -ModuleName AzureVMPowerManagement -Times 0
+        }
+    }
+}

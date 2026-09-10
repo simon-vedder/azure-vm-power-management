@@ -21,8 +21,11 @@
     )
     FunctionsToExport    = @(
         'Get-VmPowerPlan'
+        'Get-VmPowerSchedule'
         'Invoke-VmPowerPlan'
         'New-VmPowerSchedule'
+        'Remove-VmPowerSchedule'
+        'Set-VmPowerSchedule'
         'Show-VmPowerScheduleCalendar'
         'Test-VmPowerSchedule'
     )
