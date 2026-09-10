@@ -59,6 +59,13 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   a graceful shutdown and leaves the machine allocated, which is exactly what a person shutting down
   from inside Windows or Linux produces. Useful for a lab: no public address and no sign-in needed.
 
+- *(to verify)* **`Get-AutomationVariable` inside the PowerShell 7.2 runtime.** Every setting the
+  deployment writes - whether it is armed, the blast radius, the catalogue - is read through that
+  internal cmdlet. Microsoft documents `Orchestrator.AssetManagement.Cmdlets` as installed by default
+  and available in the sandbox, but says nothing specific about the 7.2 runtime, and no runbook job
+  has run yet. The failure mode is safe rather than silent: without it the fallbacks apply, the blast
+  radius reads as zero and the run refuses with "No blast radius is set". On the lab list.
+
 ## Sharp edges in the tooling itself
 
 - **`switch ($true)` does not coerce the way `-eq` does.** `$true -eq 'some-string'` is `True`, but

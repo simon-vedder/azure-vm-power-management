@@ -38,20 +38,20 @@
 
   <!-- left: name and promise. Keep the tagline under ~55 characters. -->
   <text x="80" y="150" fill="#38bdf8" font-size="18" font-weight="700" letter-spacing="5">AZURE  ·  POWERSHELL</text>
-  <text x="76" y="230" fill="#ffffff" font-size="72" font-weight="800" letter-spacing="-2">AzureVMPowerManagement</text>
-  <text x="80" y="288" fill="#aab4c8" font-size="28" font-weight="400">Tag a VM with the schedule it belongs to. The controller does the rest, and shows you what it did.</text>
-  <text x="80" y="330" fill="#6f7d99" font-size="21">Read-only by default · rules you can read · backup before every change</text>
+  <text x="78" y="228" fill="#ffffff" font-size="58" font-weight="800" letter-spacing="-1.5">AzureVMPowerManagement</text>
+  <text x="80" y="288" fill="#aab4c8" font-size="28" font-weight="400">Tag a VM with its schedule. The controller does the rest.</text>
+  <text x="80" y="330" fill="#6f7d99" font-size="21">Ships disarmed · opt-in only · every skip has a reason</text>
   <text x="80" y="362" fill="#6f7d99" font-size="21">PowerShell Gallery module · MIT</text>
 
   <g class="mono" font-size="19">
     <line x1="80" y1="470" x2="760" y2="470" stroke="url(#chain)" stroke-width="3" stroke-linecap="round"/>
     <circle cx="80" cy="470" r="9" fill="#0b1220" stroke="#38bdf8" stroke-width="3"/>
-    <text x="80" y="510" fill="#8fd3ff" text-anchor="start" font-weight="600">Get</text>
+    <text x="80" y="510" fill="#8fd3ff" text-anchor="start" font-weight="600">Plan</text>
     <circle cx="420" cy="470" r="9" fill="#0078d4" stroke="#38bdf8" stroke-width="3"/>
-    <text x="420" y="510" fill="#8fb8ec" text-anchor="middle">Report</text>
+    <text x="420" y="510" fill="#8fb8ec" text-anchor="middle">Read a week</text>
     <circle cx="760" cy="470" r="9" fill="#22c55e" stroke="#86efac" stroke-width="3"/>
-    <text x="760" y="510" fill="#86efac" text-anchor="end" font-weight="600">Remove -WhatIf</text>
-    <text x="80" y="548" fill="#55627d" font-size="17">The tool proposes, you decide.</text>
+    <text x="760" y="510" fill="#86efac" text-anchor="end" font-weight="600">Arm it</text>
+    <text x="80" y="548" fill="#55627d" font-size="17">It decides. You arm it.</text>
   </g>
 
   <!-- right: terminal card. Replace the lines with the tool's real quick start. -->
@@ -64,9 +64,9 @@
   <g class="mono" font-size="21">
     <text x="930" y="240" fill="#8fd3ff">PS&gt; </text><text x="985" y="240" fill="#e2e8f0">Install-Module AzureVMPowerManagement</text>
     <text x="930" y="290" fill="#8fd3ff">PS&gt; </text><text x="985" y="290" fill="#e2e8f0">Get-VmPowerPlan | Format-Table</text>
-    <text x="960" y="340" fill="#f59e0b">High</text><text x="1060" y="340" fill="#aab4c8">item-01   privileged and unused</text>
-    <text x="960" y="378" fill="#facc15">Medium</text><text x="1060" y="378" fill="#aab4c8">item-02   privileged and in use</text>
-    <text x="930" y="440" fill="#8fd3ff">PS&gt; </text><text x="985" y="440" fill="#e2e8f0">... | Remove-VmPowerPlan -WhatIf</text>
+    <text x="960" y="340" fill="#f59e0b">Deallocate</text><text x="1140" y="340" fill="#aab4c8">vm-build-01  stopped, still billed</text>
+    <text x="960" y="378" fill="#facc15">Deallocate</text><text x="1140" y="378" fill="#aab4c8">vm-dev-04    running outside hours</text>
+    <text x="930" y="440" fill="#8fd3ff">PS&gt; </text><text x="985" y="440" fill="#e2e8f0">... | Invoke-VmPowerPlan -WhatIf</text>
   </g>
 </svg>
 </body></html>

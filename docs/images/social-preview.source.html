@@ -33,8 +33,8 @@
   <rect x="140" y="0" width="1000" height="1000" fill="url(#glow)"/>
 
   <text x="640" y="88" fill="#38bdf8" font-size="17" font-weight="700" letter-spacing="5" text-anchor="middle">AZURE  ·  POWERSHELL</text>
-  <text x="640" y="160" fill="#ffffff" font-size="66" font-weight="800" letter-spacing="-2" text-anchor="middle">AzureVMPowerManagement</text>
-  <text x="640" y="208" fill="#aab4c8" font-size="25" text-anchor="middle">Tag a VM with the schedule it belongs to. The controller does the rest, and shows you what it did.</text>
+  <text x="640" y="158" fill="#ffffff" font-size="54" font-weight="800" letter-spacing="-1.5" text-anchor="middle">AzureVMPowerManagement</text>
+  <text x="640" y="208" fill="#aab4c8" font-size="25" text-anchor="middle">Tag a VM with its schedule. The controller does the rest.</text>
 
   <rect x="330" y="270" width="620" height="290" rx="26" fill="#0078d4" fill-opacity="0.25" filter="url(#soft)"/>
   <g filter="url(#shadow)">
@@ -44,9 +44,9 @@
   <g class="mono" font-size="21">
     <text x="370" y="345" fill="#8fd3ff">PS&gt; </text><text x="425" y="345" fill="#e2e8f0">Install-Module AzureVMPowerManagement</text>
     <text x="370" y="393" fill="#8fd3ff">PS&gt; </text><text x="425" y="393" fill="#e2e8f0">Get-VmPowerPlan | Format-Table</text>
-    <text x="400" y="441" fill="#f59e0b">High</text><text x="500" y="441" fill="#aab4c8">item-01   privileged and unused</text>
-    <text x="370" y="505" fill="#8fd3ff">PS&gt; </text><text x="425" y="505" fill="#e2e8f0">... | Remove-VmPowerPlan -WhatIf</text>
+    <text x="400" y="441" fill="#f59e0b">Deallocate</text><text x="580" y="441" fill="#aab4c8">vm-build-01  stopped, still billed</text>
+    <text x="370" y="505" fill="#8fd3ff">PS&gt; </text><text x="425" y="505" fill="#e2e8f0">... | Invoke-VmPowerPlan -WhatIf</text>
   </g>
-  <text x="640" y="605" fill="#55627d" font-size="17" text-anchor="middle" class="mono">read-only by default · backup before every change · MIT</text>
+  <text x="640" y="605" fill="#55627d" font-size="17" text-anchor="middle" class="mono">ships disarmed · opt-in only · MIT</text>
 </svg>
 </body></html>
