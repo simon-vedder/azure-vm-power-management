@@ -8,8 +8,30 @@ $script:ModuleVersion = [string](Import-PowerShellDataFile -Path (Join-Path $PSS
 # Everything a user can see or depend on (type names, tag names, state values) is declared here,
 # once. Changing one is a breaking change and goes through the CHANGELOG.
 $script:TypeName = @{
-    Finding = 'AzureVMPowerManagement.VmPowerPlan'
-    Removal = 'AzureVMPowerManagement.VmPowerPlanRemoval'
+    Plan   = 'AzureVMPowerManagement.VmPowerPlan'
+    Result = 'AzureVMPowerManagement.VmPowerPlanResult'
+}
+
+# Power state as Resource Graph reports it, in the .code form. The .displayStatus form
+# ('VM deallocated') is a string for a portal blade and is not compared against anywhere.
+$script:PowerState = @{
+    Running     = 'PowerState/running'
+    Stopped     = 'PowerState/stopped'
+    Deallocated = 'PowerState/deallocated'
+}
+
+# Something is already happening to a machine in one of these, so no rule acts on it.
+$script:TransitionalPowerStates = @(
+    'PowerState/starting'
+    'PowerState/stopping'
+    'PowerState/deallocating'
+)
+
+# Default tag keys. The deployment can override both; they are declared here so the module and
+# the runbook cannot disagree about what opts a machine in.
+$script:DefaultTag = @{
+    Schedule  = 'PowerSchedule'
+    Exclusion = 'PowerSchedule-Exclude'
 }
 
 foreach ($folder in 'Private', 'Public') {

@@ -13,10 +13,15 @@
     # runtime ships (Az 11.2.0: Az.Accounts 2.15.0, Az.Compute 7.1.1, Az.Resources 6.13.0) and
     # import no Az modules into the Automation Account. A newer Az.Accounts next to the runtime's
     # bundle breaks assembly loading in the sandbox (observed 2026-09-05).
-    RequiredModules      = @()
+    # Resource Graph is called over REST through Invoke-AzRestMethod, so Az.ResourceGraph is
+    # deliberately absent: one fewer module to import next to the runtime's bundle.
+    RequiredModules      = @(
+        @{ ModuleName = 'Az.Accounts'; ModuleVersion = '2.15.0' }
+        @{ ModuleName = 'Az.Compute'; ModuleVersion = '7.1.1' }
+    )
     FunctionsToExport    = @(
         'Get-VmPowerPlan'
-        'Remove-VmPowerPlan'
+        'Invoke-VmPowerPlan'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

@@ -1,54 +1,99 @@
 function Get-VmPowerPlan {
     <#
     .SYNOPSIS
-    Read-only discovery of VmPowerPlan findings.
+    Work out what should happen to the virtual machines in scope, and change nothing
 
     .DESCRIPTION
-    Skeleton example of the read path. Replace the source (here the -InputObject parameter) with
-    the Az or Graph calls the tool needs and keep the shape: collect raw facts, hand each one to a
-    pure decision function in Private/, emit typed objects. Nothing in this function changes state.
+    Reads every virtual machine the caller can see through Azure Resource Graph, applies the rules
+    to each one, and returns a decision per machine. Nothing in this function changes state, which
+    is why it is safe to point at somebody else's tenant before anything is deployed.
 
-    .PARAMETER InputObject
-    Raw records to evaluate. In a real tool this is what Get-AzRoleAssignment, Get-MgApplication
-    and friends return.
+    The plan is the same object the runbook acts on, so what this prints is what an armed run would
+    do. Machines the rules leave alone are returned too, with the reason - a machine missing from a
+    report is indistinguishable from a machine nobody looked at.
 
-    .PARAMETER MinimumSeverity
-    Return only findings at or above this severity.
+    Version one carries one rule: a machine in PowerState/stopped is powered off but still
+    allocated on a host, and still billed for compute. Deallocating it interrupts nothing that is
+    running. Schedules arrive in the next version.
+
+    .PARAMETER SubscriptionId
+    Subscriptions to search. Defaults to every subscription in the current context, which is what
+    makes this one query rather than a loop.
+
+    .PARAMETER ScheduleTag
+    Tag key that opts a machine in. Defaults to PowerSchedule.
+
+    .PARAMETER ExclusionTag
+    Tag key that protects a machine from every rule. Defaults to PowerSchedule-Exclude.
+
+    .PARAMETER IncludeUntagged
+    Also plan actions for machines carrying no schedule tag. Off by default: a machine nobody has
+    tagged is one nobody has decided about. Untagged stranded machines are reported either way,
+    with the reason StrandedButNotOnboarded.
+
+    .PARAMETER ActionableOnly
+    Return only the machines an armed run would touch.
 
     .EXAMPLE
-    Get-VmPowerPlan | Format-Table Name, Severity, Reason
+    # What would an armed run do right now, across every subscription in the current context?
+    Get-VmPowerPlan | Format-Table Name, PowerState, Action, Reason
 
     .EXAMPLE
-    Get-VmPowerPlan -MinimumSeverity High | Remove-VmPowerPlan -WhatIf
+    # The money question, on a tenant where nothing is tagged yet: what is powered off and still billed?
+    Get-VmPowerPlan | Where-Object Reason -match 'Stranded|StoppedNotDeallocated' | Format-Table Name, ResourceGroup, VmSize
+
+    .EXAMPLE
+    # Plan only what is onboarded, in two named subscriptions, then hand it to the executor to preview
+    Get-VmPowerPlan -SubscriptionId '00000000-0000-0000-0000-000000000000' -ActionableOnly | Invoke-VmPowerPlan -WhatIf
+
+    .INPUTS
+    None
 
     .OUTPUTS
     AzureVMPowerManagement.VmPowerPlan
 
     .NOTES
-    Required permissions: read-only. List the exact Graph scopes or RBAC actions here, and in the
-    README's Permissions section.
+    RequiredPermissions: Reader on every subscription in scope, or at a management group above
+    them. Resource Graph returns only what the signed-in identity can already read, so a narrower
+    assignment narrows the report rather than failing it.
+
+    Prerequisites: PowerShell 7.2 or later and Az.Accounts. Resource Graph is called over REST
+    rather than through Az.ResourceGraph, so that module is not needed.
+
+    Writes: Nothing. This command reads Resource Graph and returns objects.
     #>
     [CmdletBinding()]
     [OutputType('AzureVMPowerManagement.VmPowerPlan')]
     param(
-        [Parameter(ValueFromPipeline)]
-        [object[]]$InputObject,
+        [Parameter()]
+        [string[]]$SubscriptionId,
 
         [Parameter()]
-        [ValidateSet('Info', 'Low', 'Medium', 'High')]
-        [string]$MinimumSeverity = 'Info'
+        [string]$ScheduleTag,
+
+        [Parameter()]
+        [string]$ExclusionTag,
+
+        [Parameter()]
+        [switch]$IncludeUntagged,
+
+        [Parameter()]
+        [switch]$ActionableOnly
     )
 
-    begin {
-        $rank = @{ Info = 0; Low = 1; Medium = 2; High = 3 }
-    }
+    if (-not $ScheduleTag) { $ScheduleTag = $script:DefaultTag.Schedule }
+    if (-not $ExclusionTag) { $ExclusionTag = $script:DefaultTag.Exclusion }
 
-    process {
-        foreach ($raw in @($InputObject)) {
-            if ($null -eq $raw) { continue }
-            $finding = Resolve-VmPowerPlanFinding -InputObject $raw
-            if ($rank[$finding.Severity] -lt $rank[$MinimumSeverity]) { continue }
-            $finding
-        }
+    $graph = @{ Query = Get-VmPowerInventoryQuery }
+    if ($SubscriptionId) { $graph['SubscriptionId'] = $SubscriptionId }
+    $machines = @(Invoke-VmPowerGraphQuery @graph)
+
+    Write-Verbose "Resource Graph returned $($machines.Count) machine(s)."
+
+    foreach ($machine in $machines) {
+        $decision = Resolve-VmPowerAction -Machine $machine -ScheduleTag $ScheduleTag `
+            -ExclusionTag $ExclusionTag -IncludeUntagged:$IncludeUntagged
+        if ($ActionableOnly -and $decision.Action -eq 'None') { continue }
+        $decision
     }
 }

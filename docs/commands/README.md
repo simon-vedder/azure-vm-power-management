@@ -8,7 +8,7 @@ Decides which Azure VMs should be off, proves what that saved, and delegates the
 |---|---|
 | Module version | 0.1.0-preview |
 | PowerShell | 7.2+ (Core) |
-| Required modules | none |
+| Required modules | `Az.Accounts` 2.15.0+, `Az.Compute` 7.1.1+ |
 | Getting it | `Install-Module AzureVMPowerManagement`, or let the deployment pull it at the pinned version |
 
 Per-command permissions are on each page under **Requirements and notes**.
@@ -27,8 +27,8 @@ The commands the runbook calls, and the same ones you can run locally after Inst
 
 | Command | What it does |
 |---|---|
-| [Get-VmPowerPlan](Get-VmPowerPlan.md) | Read-only discovery of VmPowerPlan findings. |
-| [Remove-VmPowerPlan](Remove-VmPowerPlan.md) | Remove what a VmPowerPlan finding points at, after backing it up. |
+| [Get-VmPowerPlan](Get-VmPowerPlan.md) | Work out what should happen to the virtual machines in scope, and change nothing |
+| [Invoke-VmPowerPlan](Invoke-VmPowerPlan.md) | Carry out a plan, after the guards agree to it |
 
 ---
 
