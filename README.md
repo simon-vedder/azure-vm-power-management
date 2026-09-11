@@ -142,7 +142,7 @@ this](docs/when-not-to-use-this.md) names what to keep out of scope, and
 
 ```bash
 az deployment sub create -l westeurope -f deploy/main.bicep \
-  -p moduleVersion=0.1.3 maximumActions=25 targetResourceGroupName=rg-target
+  -p moduleVersion=0.1.4 maximumActions=25 targetResourceGroupName=rg-target
 ```
 
 One subscription-scope deployment creates an Automation Account with a system-assigned identity, a
@@ -179,7 +179,7 @@ and how to run it.
 
 ## Status
 
-Pre-release `0.1.3-preview` on the Gallery. What is verified is in
+Pre-release `0.1.4-preview` on the Gallery. What is verified is in
 [docs/verification.md](docs/verification.md); what is not is in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
 ## Documentation

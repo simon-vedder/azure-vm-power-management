@@ -16,7 +16,7 @@ Subscription-scope deployment, because the custom role definition lives there:
 
 ```bash
 az deployment sub create -l westeurope -f deploy/main.bicep \
-  -p moduleVersion=0.1.3 maximumActions=25 targetResourceGroupName=rg-target
+  -p moduleVersion=0.1.4 maximumActions=25 targetResourceGroupName=rg-target
 ```
 
 ## It arrives disarmed
