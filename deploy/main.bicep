@@ -114,6 +114,7 @@ param policyNamePrefix string = 'vm-power'
 @description('Deploy the workbook that shows what the controller decided and why. It reads the runbook job streams out of Log Analytics, so it needs no extra collection and costs nothing beyond the workspace.')
 param deployWorkbook bool = true
 
+@description('Display name of the custom role. Role names are unique across the whole directory, not per subscription, so a second controller in the same tenant has to be given a different one or the deployment fails with RoleDefinitionWithSameNameExists. One controller usually covers several subscriptions on its own - see deploy/README.md.')
 param roleName string = 'AzureVMPowerManagement Operator'
 
 @description('Exactly the actions the runbook calls, and nothing else. Reader cannot start or deallocate; Virtual Machine Contributor can also install extensions, which is code execution as SYSTEM or root on every machine in scope.')

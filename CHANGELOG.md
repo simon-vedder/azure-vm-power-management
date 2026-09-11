@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Verified
+
+- **One armed run, across two subscriptions.** The controller was deployed into a subscription with
+  no virtual machines in it at all and acted on a machine in the other one - same resource group
+  name, same machine name on both sides. It ended deallocated, and the record names the subscription
+  it was in. Template and documentation only; no module change.
+
+### Changed
+
+- `roleName` says what it is for. Custom role display names are unique per directory, so a second
+  controller in the same tenant needs a different one or the deployment fails before it starts.
+
 ## [0.1.4-preview] - 2026-09-11
 
 The first armed run of the schedule rules, and the two defects it found in the catalogue merge.

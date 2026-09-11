@@ -42,6 +42,11 @@ first value while the redeployment reports success.
 | `PM_ScheduleCatalogCustom` | not created | Owned by `Set-VmPowerSchedule`. Never touched here. |
 | `PM_LastActionAt` | `{}` | What the runbook last acted on and when. Written by the runbook, reset by a redeployment. |
 
+One controller usually covers every subscription its identity can read, which is what discovering
+through Resource Graph is for - assign the operator role in each subscription that holds machines and
+leave the controller where it is. If you do deploy a second controller in the same tenant, give it a
+different `roleName`: custom role display names are unique per directory, and the default collides.
+
 The split between `PM_ScheduleCatalog` and `PM_ScheduleCatalogCustom` is deliberate and is the reason
 a redeployment cannot eat somebody's schedule — see [ADR 0005](../docs/decisions/0005-json-is-the-storage-format-not-the-authoring-format.md).
 

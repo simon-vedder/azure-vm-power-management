@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "1825170216424350019"
+      "templateHash": "11277312063283512577"
     }
   },
   "parameters": {
@@ -219,7 +219,10 @@
     },
     "roleName": {
       "type": "string",
-      "defaultValue": "AzureVMPowerManagement Operator"
+      "defaultValue": "AzureVMPowerManagement Operator",
+      "metadata": {
+        "description": "Display name of the custom role. Role names are unique across the whole directory, not per subscription, so a second controller in the same tenant has to be given a different one or the deployment fails with RoleDefinitionWithSameNameExists. One controller usually covers several subscriptions on its own - see deploy/README.md."
+      }
     },
     "roleActions": {
       "type": "array",
