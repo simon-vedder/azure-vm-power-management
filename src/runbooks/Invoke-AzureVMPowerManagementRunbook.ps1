@@ -139,6 +139,32 @@ function Get-Setting {
     catch { return $Fallback }
 }
 
+# The same read, for the values that are not scalars. It needs its own function because the two
+# cannot be served by one: PowerShell unrolls a collection on its way out of a function, and
+# Automation hands a JSON array back as a Newtonsoft JArray - so a catalogue of exactly one
+# schedule arrived at the caller as that schedule, and one level further as that schedule's fields.
+# Two or more schedules hid it completely, which is how it survived a real lab and a real armed run.
+#
+# -NoEnumerate fixes that and is not transparent: applied to a string it wraps it in a collection,
+# which is why Get-Setting above must not use it. Structured here, scalar there, and no shared
+# cleverness between them.
+function Get-StructuredSetting {
+    param([Parameter(Mandatory)][string]$Name)
+
+    if (-not (Get-Command -Name Get-AutomationVariable -ErrorAction SilentlyContinue)) { return }
+    try { $value = Get-AutomationVariable -Name $Name -ErrorAction Stop }
+    catch { return }
+    if ($null -eq $value) { return }
+
+    # Only what would otherwise unroll. -NoEnumerate applied to a string wraps it in a collection
+    # of one, which is a different bug in the same place.
+    if ($value -is [System.Collections.IEnumerable] -and $value -isnot [string]) {
+        Write-Output $value -NoEnumerate
+        return
+    }
+    $value
+}
+
 # [bool]'false' is $true. Every non-empty string is. Whether Get-AutomationVariable hands back a
 # real boolean or the text depends on how the value was stored, so a cast here would arm a
 # deployment whose PM_Armed says false - the exact failure every guard in this tool exists to
@@ -226,12 +252,40 @@ Write-Output "Scope: $scope | Armed: $Armed | MaximumActions: $MaximumActions | 
 # real runbook job did on 2026-09-10. Both shapes are accepted.
 function ConvertTo-CatalogArray {
     param([Parameter()][AllowNull()]$Value)
-    if ($null -eq $Value) { return @() }
+
+    if ($null -eq $Value) { return , @() }
+
     if ($Value -is [string]) {
-        if (-not $Value.Trim()) { return @() }
-        return @($Value | ConvertFrom-Json -ErrorAction Stop)
+        if (-not $Value.Trim()) { return , @() }
+        $Value = $Value | ConvertFrom-Json -ErrorAction Stop
     }
-    @($Value)
+
+    # Everything here is enumerable twice over: a JArray yields JObjects and a JObject yields
+    # JProperties. PowerShell unrolls a collection on its way out of a function and cannot tell
+    # which level was meant, so a catalogue of exactly one schedule arrived here already collapsed
+    # into that schedule - and enumerating it again produced its fields. Two JProperty objects
+    # where one schedule should have been, and a run that died on "Expand-VmPowerSchedule was
+    # given a collection". Two or more schedules hid it completely, which is why it survived a
+    # real lab and a real armed run.
+    #
+    # So the level is decided by what the thing IS, not by whether it can be enumerated: a JObject
+    # is one schedule, whatever PowerShell thinks of its contents.
+    $items = [System.Collections.Generic.List[object]]::new()
+    if ($null -ne $Value -and $Value.GetType().FullName -eq 'Newtonsoft.Json.Linq.JObject') {
+        $items.Add($Value)
+    }
+    elseif ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string] -and
+        $Value -isnot [System.Collections.IDictionary]) {
+        foreach ($item in $Value) { $items.Add($item) }
+    }
+    else {
+        $items.Add($Value)
+    }
+
+    # The comma is load-bearing in the other direction: without it the array is unrolled on the way
+    # out and a single entry is enumerated all over again by the caller. Callers assign the result
+    # and must not wrap it in @(), which would put the array inside another array.
+    , $items.ToArray()
 }
 
 # PM_LastActionAt is this runbook's memory of what it touched and when. It is the whole of the
@@ -259,10 +313,22 @@ function ConvertTo-ActionMemory {
 
     if ($object -is [System.Collections.IDictionary]) {
         foreach ($key in @($object.Keys)) { $memory[[string]$key] = ConvertTo-MemoryStamp -Value $object[$key] }
+        return $memory
     }
-    else {
-        foreach ($property in @($object.PSObject.Properties)) { $memory[$property.Name] = ConvertTo-MemoryStamp -Value $property.Value }
+
+    # JProperty objects, either straight from a JObject or already unrolled into an array on the
+    # way here. A JObject exposes one nameless PowerShell property and nothing else, so without
+    # this the memory came back as a single entry under an empty key: the count looked plausible
+    # and the dwell guard matched nothing.
+    $jsonProperties = @($object | Where-Object {
+            $null -ne $_ -and $_.GetType().FullName -eq 'Newtonsoft.Json.Linq.JProperty'
+        })
+    if ($jsonProperties.Count) {
+        foreach ($item in $jsonProperties) { $memory[[string]$item.Name] = ConvertTo-MemoryStamp -Value $item.Value }
+        return $memory
     }
+
+    foreach ($property in @($object.PSObject.Properties)) { $memory[$property.Name] = ConvertTo-MemoryStamp -Value $property.Value }
     $memory
 }
 
@@ -275,6 +341,14 @@ function ConvertTo-ActionMemory {
 # lossless whichever shape the variable arrived in.
 function ConvertTo-MemoryStamp {
     param([Parameter()][AllowNull()]$Value)
+
+    # One layer down, the same zone loss: a JProperty hands back a JValue, and casting that to a
+    # string renders the DateTime inside it in the short invariant form, without the Z.
+    if ($null -ne $Value -and $Value.GetType().FullName -like 'Newtonsoft.Json.Linq.J*' -and
+        $Value.PSObject.Properties['Value']) {
+        $Value = $Value.Value
+    }
+
     if ($Value -is [datetime]) { return ([datetime]$Value).ToUniversalTime().ToString('o') }
     [string]$Value
 }
@@ -326,12 +400,57 @@ function Save-ActionMemory {
     }
 }
 
+# Get-AutomationVariable hands a variable back as a Newtonsoft JObject, and a JObject indexes
+# case-sensitively. The two catalogue variables were not written in the same case - Bicep writes
+# name, older versions of this module wrote Name - so reading $entry.name found the deployment's
+# entries and returned empty for every custom one. All of them keyed on an empty string, each
+# replaced the last, and only one survived. A machine tagged with a lost schedule then reported
+# ScheduleNotInCatalogue, which is indistinguishable from a machine nobody onboarded. Found by
+# running it against a real Automation Account on 2026-09-11, with two custom schedules.
+#
+# The module writes camelCase now. This reads either, because a catalogue stored by an older
+# version is still out there and would otherwise lose schedules quietly after an upgrade.
+function Get-CatalogEntryName {
+    param([Parameter()][AllowNull()]$Entry)
+
+    if ($null -eq $Entry) { return '' }
+
+    if ($Entry -is [System.Collections.IDictionary]) {
+        foreach ($key in @($Entry.Keys)) { if ("$key" -eq 'name') { return [string]$Entry[$key] } }
+    }
+
+    foreach ($property in @($Entry.PSObject.Properties)) {
+        if ($property.Name -eq 'name') { return [string]$property.Value }
+    }
+
+    # A JObject is not an IDictionary and exposes no PowerShell properties. Enumerating it yields
+    # JProperty objects, which is the only way to reach its fields without guessing the casing.
+    if ($Entry -is [System.Collections.IEnumerable] -and $Entry -isnot [string]) {
+        foreach ($item in $Entry) {
+            if ($null -eq $item) { continue }
+            if ($item.PSObject.Properties['Name'] -and "$($item.Name)" -eq 'name') { return [string]$item.Value }
+        }
+    }
+
+    ''
+}
+
 if (-not $ScheduleCatalog) {
     $merged = [ordered]@{}
     foreach ($variableName in 'PM_ScheduleCatalog', 'PM_ScheduleCatalogCustom') {
-        foreach ($entry in (ConvertTo-CatalogArray -Value (Get-Setting -Name $variableName))) {
+        $entries = ConvertTo-CatalogArray -Value (Get-StructuredSetting -Name $variableName)
+        foreach ($entry in $entries) {
             if ($null -eq $entry) { continue }
-            $merged[[string]$entry.name] = $entry
+            $entryName = Get-CatalogEntryName -Entry $entry
+            # Never keyed on an empty string. That is what made three schedules out of four look
+            # like a complete catalogue, and nothing downstream could tell the difference.
+            if (-not $entryName) {
+                throw ("An entry in the Automation variable $variableName has no readable name, so " +
+                    'nothing was planned. A catalogue entry that cannot be keyed would silently ' +
+                    'replace another one, and a schedule missing from the catalogue looks exactly ' +
+                    'like a machine nobody onboarded.')
+            }
+            $merged[$entryName] = $entry
         }
     }
     if ($merged.Count) { $ScheduleCatalog = ConvertTo-Json -InputObject @($merged.Values) -Depth 8 -Compress }
@@ -341,6 +460,7 @@ $catalog = @()
 if ($ScheduleCatalog) {
     $parsed = ConvertTo-CatalogArray -Value $ScheduleCatalog
     $checked = @($parsed | Test-VmPowerSchedule -Detailed)
+    if (-not $checked.Count) { throw 'The schedule catalogue parsed to nothing. Check PM_ScheduleCatalog and PM_ScheduleCatalogCustom hold a JSON array of schedules.' }
     $bad = @($checked | Where-Object { -not $_.Valid })
     if ($bad.Count) {
         throw ("The schedule catalogue has $($bad.Count) problem(s), so nothing was planned: " +
@@ -353,7 +473,7 @@ else {
     Write-Output 'Catalogue: none. Only the stranded-machine rule applies.'
 }
 
-$memory = ConvertTo-ActionMemory -Value (Get-Setting -Name 'PM_LastActionAt')
+$memory = ConvertTo-ActionMemory -Value (Get-StructuredSetting -Name 'PM_LastActionAt')
 Write-Output "Dwell: $MinimumDwellMinutes min, $($memory.Count) machine(s) remembered from earlier runs"
 
 $planArgs = @{ IncludeUntagged = $IncludeUntagged }

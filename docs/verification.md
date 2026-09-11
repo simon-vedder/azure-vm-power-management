@@ -145,11 +145,52 @@ What that settles:
 - **`Switch-VmPowerSubscriptionContext` moves a real context between two real subscriptions**, and
   restores it. Read-only, from a laptop: nothing was deployed to the second subscription.
 
+## 2026-09-11 — the schedule paths, armed, against real machines
+
+The earlier labs only ever exercised the stranded rule. Nothing had yet stopped a running machine
+because a schedule said so, and nothing had started one. Three `Standard_B1s` machines in a personal
+test subscription, a second deployment, torn down afterwards.
+
+| Machine | Before | Tag | Result |
+|---|---|---|---|
+| `vm-sched-start` | deallocated | `lab-up-now` | **`Start` — ShouldBeRunning.** Came back running. |
+| `vm-sched-stop` | running | `lab-down-now` | **`Deallocate` — ShouldBeStopped.** `Schedule 'lab-down-now' has it down at this time and it is running.` |
+| `vm-excluded` | running | `lab-down-now` + exclusion | **`None` — Excluded**, while armed and while its schedule wanted it down |
+
+Also proved in the same lab:
+
+- **`Set-VmPowerSchedule`, `Get-VmPowerSchedule` and `Remove-VmPowerSchedule` against a real
+  account**, including `-WhatIf`, the merge of the two variables and the `Source` each entry came
+  from.
+- **The generated policy fires.** A machine tagged `PowerSchedule=typo-not-in-catalogue` was reported
+  `NonCompliant` against `vm-power-unknown-schedule` by Azure Policy itself.
+- **A catalogue written by an older version still works.** The custom variable held the PascalCase
+  shape throughout, and the next write converted it.
+
+The first armed run of this lab **did not** stop `vm-sched-stop`, and that is the point of the entry
+below it: two defects were sitting in the merge, and neither was reachable from anything but a real
+Automation sandbox with more than one custom schedule.
+
+## 2026-09-11 — two defects in the catalogue merge
+
+Both found by the run above, both invisible to 181 local tests, and both in the seam between the
+runbook and the Automation asset store rather than in any rule.
+
+1. **Only one custom schedule survived.** `Get-AutomationVariable` returns a Newtonsoft `JObject`,
+   which indexes case-sensitively; Bicep writes `name` and the module wrote `Name`. Every custom
+   entry keyed on an empty string and replaced the one before it. The machine tagged with the lost
+   schedule reported `ScheduleNotInCatalogue` and was never touched.
+2. **A catalogue of exactly one schedule broke the run.** PowerShell unrolls a collection leaving a
+   function, and these nest: `JArray` → `JObject` → `JProperty`. One schedule arrived as its own
+   fields. Two or more hid it entirely.
+
+The orchestrator scenarios now stub `Get-AutomationVariable` with real `JArray`/`JObject` values
+rather than strings, which is what makes either failure reproducible off Azure. Reverting each fix
+makes exactly the new tests fail, and nothing else.
+
 ## What is still unproved
 
 - No estate large enough to page Resource Graph has been seen.
-- **A machine has never been started by the controller in anger.** Every armed run so far exercised
-  the deallocate path; `ShouldBeRunning` is covered by tests and by a laptop run, not by a sandbox.
 - **The multi-subscription path is proved in halves.** The context switch moves a real context
   between two real subscriptions, and the end-to-end behaviour is proved against stubs with a
   machine of the same name in each. Nothing has yet deallocated across two subscriptions in one run.

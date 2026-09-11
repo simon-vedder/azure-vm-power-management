@@ -19,7 +19,9 @@ function Show-VmPowerScheduleCalendar {
     One or more schedules, in either form.
 
     .PARAMETER Days
-    How many days ahead to render. Fourteen covers a fortnight, which is where a wrong weekday shows.
+    How many calendar days to render, counting the one you are in - not a rolling window of that
+    many hours. At 16:00 with -Days 1 you see the rest of today and nothing of tomorrow, which is
+    why the default is a fortnight: a wrong weekday only shows over a span that contains it.
 
     .PARAMETER FromUtc
     Start of the window. Defaults to now, and can be set to look at a specific date - a daylight

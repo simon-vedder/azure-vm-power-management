@@ -32,7 +32,7 @@ Writes: Nothing.
 | Name | Type | Required | Pipeline | Default | Description |
 |---|---|---|---|---|---|
 | `-Schedule` | Object[] | yes | yes |  | One or more schedules, in either form. |
-| `-Days` | Int32 | no | no | 14 | How many days ahead to render. Fourteen covers a fortnight, which is where a wrong weekday shows. |
+| `-Days` | Int32 | no | no | 14 | How many calendar days to render, counting the one you are in - not a rolling window of that many hours. At 16:00 with -Days 1 you see the rest of today and nothing of tomorrow, which is why the default is a fortnight: a wrong weekday only shows over a span that contains it. |
 | `-FromUtc` | DateTime | no | no | [datetime]::UtcNow | Start of the window. Defaults to now, and can be set to look at a specific date - a daylight saving weekend, for instance. |
 
 ## Examples
