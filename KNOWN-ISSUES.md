@@ -16,6 +16,12 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   whole run. A job that fails with `more than the N allowed` while `PM_Armed` is false has changed
   nothing and is telling you the number is wrong at the only time that costs nothing. Raise
   `PM_MaximumActions`, or look at what made the plan jump.
+- *(observed)* **A second controller in the same tenant fails on the role name.** Custom role display
+  names are unique across the whole directory, not per subscription, so deploying into a second
+  subscription with the defaults returns `RoleDefinitionWithSameNameExists` before anything is
+  created. Pass a different `roleName`. It is rarely needed: one controller reaches every
+  subscription its identity can read, which is the point of discovering through Resource Graph.
+  Hit on 2026-09-11 while setting up the cross-subscription test.
 - *(observed)* **A prerelease `moduleVersion` used to break the deployment.** Automation validates
   `contentUri.version` against `System.Version`, which cannot parse `0.1.3-preview`, and refuses the
   module import with `The contentUri.version property is of an invalid form or value` - an ARM error

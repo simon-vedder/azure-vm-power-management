@@ -188,10 +188,32 @@ The orchestrator scenarios now stub `Get-AutomationVariable` with real `JArray`/
 rather than strings, which is what makes either failure reproducible off Azure. Reverting each fix
 makes exactly the new tests fail, and nothing else.
 
+## 2026-09-11 — one armed run, across two subscriptions
+
+The controller was deployed into a **second subscription that holds no virtual machines at all**,
+and the machine it had to act on lived in the first one. That is the sharper direction: with the
+context left where `Connect-AzAccount -Identity` puts it, every action would look for the machine in
+the controller's own subscription and fail.
+
+Sharper still, the resource group is called `rg-vmpower-xsub` on **both** sides, and the machine is
+called `soak-office` - a name that also exists in the other subscription. Left unswitched, the call
+resolves against a resource group that really exists and simply has no such machine.
+
+```
+Planned: 1 machine(s), 1 actionable
+PMREC {... "vm":"soak-office","rg":"rg-vmpower-xsub","sub":"<the other subscription>",
+       "state":"running","sched":"office-hours-ch","action":"Deallocate","reason":"ShouldBeStopped","status":"Done"}
+[soak-office] Deallocate - Done: Schedule 'office-hours-ch' has it down at this time and it is running.
+```
+
+The machine ended `VM deallocated`. The identity held the operator role on one resource group in the
+other subscription and nothing else, so discovery returned exactly that one machine - the blast
+radius bounded by RBAC rather than by the tool, which is the design.
+
+Found on the way: **a second controller in the same tenant fails on the custom role name**, because
+role display names are unique per directory. `roleName` exists for it; the default collides.
+
 ## What is still unproved
 
 - No estate large enough to page Resource Graph has been seen.
-- **The multi-subscription path is proved in halves.** The context switch moves a real context
-  between two real subscriptions, and the end-to-end behaviour is proved against stubs with a
-  machine of the same name in each. Nothing has yet deallocated across two subscriptions in one run.
 - Nothing has run for a week, so no report covers a daylight saving change or a weekend.
