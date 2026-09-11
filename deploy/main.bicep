@@ -2,7 +2,7 @@
 // system-assigned identity, the least-privilege role it needs, Log Analytics, module import,
 // runbook and its hourly trigger. Subscription scope because a custom role definition lives there.
 //
-//   az deployment sub create -l westeurope -f deploy/main.bicep -p moduleVersion=0.1.3 maximumActions=25
+//   az deployment sub create -l westeurope -f deploy/main.bicep -p moduleVersion=0.1.4 maximumActions=25
 //
 // It arrives disarmed. The schedule runs the runbook every hour, it decides everything and it
 // touches nothing until PM_Armed is set to true - which is one edit in the portal, not a
