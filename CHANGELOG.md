@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Every custom schedule now reaches the controller.** `Get-AutomationVariable` returns a
+  Newtonsoft `JObject`, which indexes case-sensitively. Bicep writes `name`; the module stored the
+  expanded object as `Name`. Reading one way found the deployment's entries and returned empty for
+  every custom one, so they all keyed on an empty string and each replaced the last - **only one
+  custom schedule survived**, and a machine tagged with a lost one reported `ScheduleNotInCatalogue`
+  and was never touched. The module writes the documented camelCase shape now, the runbook reads
+  either, and an entry whose name cannot be read stops the run instead of being keyed on nothing.
+- **A catalogue holding exactly one schedule no longer breaks the run.** PowerShell unrolls a
+  collection on its way out of a function, and these nest: a `JArray` yields `JObject` and a
+  `JObject` yields `JProperty`. One schedule arrived as its own fields and the run died on
+  `Expand-VmPowerSchedule was given a collection`. Two or more schedules hid it completely.
 - **A prerelease `moduleVersion` no longer breaks the deployment.** Automation validates
   `contentUri.version` against `System.Version`, which cannot parse `0.1.3-preview`, so the module
   import failed with `The contentUri.version property is of an invalid form or value` - an ARM error
@@ -15,6 +26,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Verified
 
+- **The schedule paths, armed, against real machines.** A running machine deallocated because its
+  schedule wanted it down, a deallocated one started because its schedule wanted it up, and an
+  excluded one left alone while armed and while its schedule wanted it down. Until now every armed
+  run had only ever exercised the stranded rule.
+- **The generated policy fires.** A machine tagged with a schedule that does not exist was reported
+  `NonCompliant` by Azure Policy against `vm-power-unknown-schedule`.
+- **`Set-`, `Get-` and `Remove-VmPowerSchedule` against a real Automation Account**, including
+  `-WhatIf` and the merge of the two catalogue variables.
 - **0.1.3-preview ran armed in a real Automation Account**, deallocated a stranded machine, left the
   untagged one alone, wrote its dwell memory and was held back by that memory on the next run. It is
   the first armed run on a schedule inside a sandbox, and it settles `Set-AutomationVariable`. Full

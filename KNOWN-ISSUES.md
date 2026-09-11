@@ -117,6 +117,25 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
 
 ## Sharp edges in the tooling itself
 
+- **`Get-AutomationVariable` returns a Newtonsoft `JObject`, and a `JObject` indexes
+  case-sensitively.** It is not an `IDictionary`, it exposes no PowerShell properties, and
+  enumerating it yields `JProperty`. The two catalogue variables were not written in the same case -
+  Bicep writes `name`, the module used to store the expanded object as `Name` - so reading
+  `$entry.name` found the deployment's entries and returned empty for every custom one. All of them
+  keyed on an empty string, each replaced the last, and **only one custom schedule survived**. A
+  machine tagged with a lost schedule reported `ScheduleNotInCatalogue`, which is indistinguishable
+  from a machine nobody onboarded. The module writes camelCase now and the runbook reads either;
+  an entry whose name cannot be read stops the run rather than being keyed on nothing. Found on
+  2026-09-11 by running a real armed job with two custom schedules.
+- **PowerShell unrolls a collection on its way out of a function, and these collections nest.** A
+  `JArray` yields `JObject` and a `JObject` yields `JProperty`, so a catalogue variable holding
+  **exactly one** schedule arrived at the caller as that schedule, and one level further as that
+  schedule's fields - a run that died on `Expand-VmPowerSchedule was given a collection`. Two or
+  more schedules hid it completely, which is why it survived a lab, an armed run and 181 tests.
+  Structured variables are read through their own function with `Write-Output -NoEnumerate`.
+- **`-NoEnumerate` is not transparent.** Applied to a string it returns
+  `System.Collections.Generic.List[object]` holding that string, so a single reader cannot serve
+  both scalars and collections. That is why there are two.
 - **An Az power cmdlet takes no subscription.** `Stop-AzVM` and `Start-AzVM` have `-ResourceGroupName`
   and `-Name` and act in whatever subscription the current context points at; `Connect-AzAccount
   -Identity` picks the first one it sees. Discovery has no such limit - one Resource Graph query

@@ -60,6 +60,13 @@ $ErrorActionPreference = 'Stop'
 $env:PSModulePath = (Join-Path $RepositoryRoot 'src') + [IO.Path]::PathSeparator + $env:PSModulePath
 $runbook = Join-Path $RepositoryRoot 'src' 'runbooks' 'Invoke-AzureVMPowerManagementRunbook.ps1'
 
+# Newtonsoft comes with Az.Accounts, which the manifest requires anyway. It is here because a
+# stub that hands back a string is not a faithful stub: Get-AutomationVariable deserialises a
+# variable and returns a JObject, which indexes case-sensitively and exposes no PowerShell
+# properties. A whole class of defect only exists in that shape, and the earlier version of this
+# file could not see any of it.
+Import-Module Az.Accounts -ErrorAction Stop
+
 $subA = '11111111-1111-1111-1111-111111111111'
 $subB = '22222222-2222-2222-2222-222222222222'
 function New-Id { param($Sub, $Name) "/subscriptions/$Sub/resourceGroups/rg-shared/providers/Microsoft.Compute/virtualMachines/$Name" }
@@ -70,6 +77,8 @@ $global:vms = [ordered]@{
     (New-Id $subA 'vm-app')  = @{ sub = $subA; name = 'vm-app'; power = 'PowerState/stopped'; tags = @{ PowerSchedule = 'office-hours-ch' } }
     (New-Id $subB 'vm-app')  = @{ sub = $subB; name = 'vm-app'; power = 'PowerState/stopped'; tags = @{ PowerSchedule = 'office-hours-ch' } }
     (New-Id $subA 'vm-keep') = @{ sub = $subA; name = 'vm-keep'; power = 'PowerState/running'; tags = @{ PowerSchedule = 'always-on' } }
+    # Tagged with the FIRST of two custom schedules. That one used to be the one that disappeared.
+    (New-Id $subA 'vm-sched-down') = @{ sub = $subA; name = 'vm-sched-down'; power = 'PowerState/running'; tags = @{ PowerSchedule = 'lab-down-now' } }
 }
 $global:context = $subA
 $global:stops = [System.Collections.Generic.List[string]]::new()
@@ -82,15 +91,39 @@ $global:assets = @{
     PM_ScheduleTag         = 'PowerSchedule'
     PM_ExclusionTag        = 'PowerSchedule-Exclude'
     PM_LastActionAt        = '{}'
+    # Written by Bicep: camelCase, because that is the documented shape.
     PM_ScheduleCatalog     = (ConvertTo-Json -Compress -Depth 8 -InputObject @(
             @{ name = 'office-hours-ch'; timeZone = 'W. Europe Standard Time'; weekdays = '07:30-18:30'; minimumDwellMinutes = 45 }
             @{ name = 'always-on'; timeZone = 'UTC'; actions = @(@{ action = 'Start'; at = '06:00'; weekDays = 'All' }); minimumDwellMinutes = 30 }
+        ))
+    # Written by a version of the module that stored the expanded object: PascalCase. The module
+    # writes camelCase now, but a catalogue in this shape is still out there in every account that
+    # ran an earlier version, and an upgrade must not quietly drop schedules from it.
+    PM_ScheduleCatalogCustom = (ConvertTo-Json -Compress -Depth 8 -InputObject @(
+            @{ Name = 'lab-down-now'; TimeZone = 'UTC'; MinimumDwellMinutes = 30; Actions = @(
+                    @{ Action = 'Start'; At = ([datetime]::UtcNow.AddMinutes(-20).ToString('HH\:mm')); WeekDays = 'All' }
+                    @{ Action = 'Deallocate'; At = ([datetime]::UtcNow.AddMinutes(-10).ToString('HH\:mm')); WeekDays = 'All' }
+                ) }
+            @{ Name = 'lab-up-now'; TimeZone = 'UTC'; MinimumDwellMinutes = 30; Actions = @(
+                    @{ Action = 'Deallocate'; At = ([datetime]::UtcNow.AddMinutes(-20).ToString('HH\:mm')); WeekDays = 'All' }
+                    @{ Action = 'Start'; At = ([datetime]::UtcNow.AddMinutes(-10).ToString('HH\:mm')); WeekDays = 'All' }
+                ) }
         ))
 }
 
 function global:Get-AutomationVariable {
     param([string]$Name)
-    if ($global:assets.ContainsKey($Name)) { $global:assets[$Name] } else { throw "The variable $Name was not found." }
+    if (-not $global:assets.ContainsKey($Name)) { throw "The variable $Name was not found." }
+    $value = $global:assets[$Name]
+
+    # What Automation actually does: the stored text is deserialised before it reaches the runbook.
+    # A JSON array comes back as a Newtonsoft JArray of JObject - case-sensitive, and with no
+    # PowerShell properties on it. A value stored as a JSON string comes back as a string, which is
+    # why PM_LastActionAt behaves differently from the catalogue.
+    if ($value -is [string] -and $value.TrimStart().StartsWith('[')) {
+        return [Newtonsoft.Json.Linq.JArray]::Parse($value)
+    }
+    $value
 }
 function global:Set-AutomationVariable { param([string]$Name, $Value) $global:assets[$Name] = $Value }
 function global:Connect-AzAccount { param() [pscustomobject]@{ Context = 'stub' } }
@@ -187,6 +220,30 @@ $results.Add((Invoke-Scenario 'blast radius, disarmed' @{ MaximumActions = 1 }))
 $global:assets.PM_Armed = $true
 $global:assets.PM_LastActionAt = 'not json at all'
 $results.Add((Invoke-Scenario 'corrupt dwell store' @{ MaximumActions = 25 }))
+
+# Exactly one schedule in a variable. Automation returns a JArray, PowerShell unrolls it on its way
+# out of Get-Setting, and one more level down a JObject becomes its own fields - so the single-entry
+# catalogue is the one shape that breaks while two or more work perfectly.
+$global:assets.PM_Armed = $true
+$global:assets.PM_LastActionAt = '{}'
+$global:assets.PM_ScheduleCatalog = (ConvertTo-Json -Compress -Depth 8 -InputObject @(
+        @{ name = 'always-on'; timeZone = 'UTC'; actions = @(@{ action = 'Start'; at = '06:00'; weekDays = 'All' }); minimumDwellMinutes = 30 }
+    ))
+$global:assets.PM_ScheduleCatalogCustom = (ConvertTo-Json -Compress -Depth 8 -InputObject @(
+        @{ Name = 'lab-down-now'; TimeZone = 'UTC'; MinimumDwellMinutes = 30; Actions = @(
+                @{ Action = 'Start'; At = ([datetime]::UtcNow.AddMinutes(-20).ToString('HH\:mm')); WeekDays = 'All' }
+                @{ Action = 'Deallocate'; At = ([datetime]::UtcNow.AddMinutes(-10).ToString('HH\:mm')); WeekDays = 'All' }
+            ) }
+    ))
+$results.Add((Invoke-Scenario 'one schedule in each variable' @{ MaximumActions = 25 }))
+
+# A catalogue entry whose name cannot be read must stop the run. Keyed on an empty string it would
+# replace whatever was there, and the count would still look plausible.
+$global:assets.PM_LastActionAt = '{}'
+$global:assets.PM_ScheduleCatalogCustom = (ConvertTo-Json -Compress -Depth 8 -InputObject @(
+        @{ schedule = 'lab-nameless'; timeZone = 'UTC'; actions = @(@{ action = 'Start'; at = '06:00'; weekDays = 'All' }) }
+    ))
+$results.Add((Invoke-Scenario 'catalogue entry with no name' @{ MaximumActions = 25 }))
 
 $json = ConvertTo-Json -InputObject @{ scenarios = @($results) } -Depth 8
 if ($OutputPath) { Set-Content -LiteralPath $OutputPath -Value $json -Encoding utf8 } else { $json }

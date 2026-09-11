@@ -56,13 +56,26 @@ function Set-VmPowerCatalogVariable {
     $flat = [System.Collections.Generic.List[object]]::new()
     foreach ($entry in @($Catalog)) {
         if ($null -eq $entry) { continue }
-        if ($entry -is [System.Collections.IEnumerable] -and $entry -isnot [string]) {
+        # A dictionary is IEnumerable too, and the stored shape is one. What this guard is for is
+        # an array arriving where a schedule should be, which is what produces the nested array
+        # nothing can read back.
+        if ($entry -isnot [System.Collections.IDictionary] -and $entry -is [System.Collections.IEnumerable] -and $entry -isnot [string]) {
             throw ("A catalogue entry is a collection rather than a schedule, so the value would be " +
                 'a nested array that nothing can read back. This is a bug in the caller, not in the ' +
                 'catalogue: pass one schedule per entry.')
         }
         $flat.Add($entry)
     }
+
+    # Written in the camelCase shape the deployment uses, not the PascalCase of the expanded object.
+    # Every reader in this module is case-insensitive, so the difference was invisible here - and
+    # fatal in the runbook, where Get-AutomationVariable returns a JObject that indexes
+    # case-sensitively and found nothing under 'name'. Converted here rather than in each caller,
+    # because this is the only function that writes a catalogue and there is no second shape to
+    # keep in step. See ConvertTo-VmPowerStoredSchedule.
+    $shaped = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $flat) { $shaped.Add((ConvertTo-VmPowerStoredSchedule -Schedule $entry)) }
+    $flat = $shaped
 
     $subscription = if ($SubscriptionId) { $SubscriptionId } else { Resolve-VmPowerSubscription }
     $uri = ('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Automation/automationAccounts/{2}/variables/{3}?api-version={4}' -f
