@@ -213,7 +213,36 @@ radius bounded by RBAC rather than by the tool, which is the design.
 Found on the way: **a second controller in the same tenant fails on the custom role name**, because
 role display names are unique per directory. `roleName` exists for it; the default collides.
 
+## 2026-09-13 — two days of unattended running, and what they found
+
+A deployment left armed on its own hourly trigger in a personal test subscription: two
+`Standard_B1s` machines on standard HDDs, one tagged, one carrying the exclusion tag as a control.
+
+**43 jobs, every one Completed, not a single failure** - from Friday evening through Saturday and
+into Sunday, including a full weekend day. The trigger fired unattended every hour without
+supervision, which is the thing no single run can show.
+
+And it did **nothing at all**, on purpose by accident: the window was 05:00-05:30 UTC and the
+trigger fires at :53 every hour. At 04:53 the window had not opened; at 05:53 it had already closed.
+Only a run at exactly 05:00 would ever have seen it.
+
+| Run | What the schedule wanted |
+|---|---|
+| 04:53 | Down |
+| **05:00** | **Up** — the only minute in the day it reads open |
+| 05:53 | Down |
+| 06:53 | Down |
+
+That is a defect in the tool, not only in the test: the schedule validated clean, deployed clean and
+reported `MatchesSchedule` 43 times. `Test-VmPowerSchedule` now warns when a window is narrower than
+the shortest trigger Automation allows, and the runbook prints the warning on every run.
+
+The window is now 05:00-06:30, which contains the :53 the trigger actually fires at, and the
+controller will start and deallocate once a day from here.
+
 ## What is still unproved
 
 - No estate large enough to page Resource Graph has been seen.
-- Nothing has run for a week, so no report covers a daylight saving change or a weekend.
+- Nothing has yet started and stopped a machine on its own schedule over several days. Two days of
+  unattended running are behind it, but the window they used was one the controller could not see.
+- Nothing has run through a daylight saving change. The next is 25 October.

@@ -8,6 +8,11 @@ function Test-VmPowerSchedule {
     the first problem: somebody validating twelve schedules wants all twelve answers, not the first
     one. Set-VmPowerSchedule calls it and refuses to store anything that does not pass.
 
+    Valid and useful are different questions. A schedule can be well formed and still be one the
+    deployed controller never sees open, because it is sampled on a timer that cannot run more often
+    than hourly. That comes back in Warnings rather than Problem: nothing is wrong with the schedule,
+    but left alone it would do nothing and say nothing about it.
+
     It also checks the things a schema cannot: two schedules with the same name, and a catalogue
     whose names would not survive being turned into the allowedValues of a policy.
 
@@ -83,11 +88,25 @@ function Test-VmPowerSchedule {
                 else { $seen[$name] = 1 }
             }
 
+            # Not a problem: the schedule is well formed and somebody triggering the runbook by
+            # webhook every ten minutes would be served by it exactly as written. It is a warning
+            # because the deployed controller cannot wake more often than hourly, so a window this
+            # narrow is one it will usually step over - and the symptom is silence. Every run says
+            # MatchesSchedule, the machine is never started, and nothing is wrong anywhere.
+            $warnings = [System.Collections.Generic.List[string]]::new()
+            if (-not $problem -and $null -ne $expanded) {
+                $window = Get-VmPowerScheduleUpWindow -Schedule @($expanded)[0]
+                if ($null -ne $window -and $window -lt $script:MinimumTriggerMinutes) {
+                    $warnings.Add("Wants machines up for only $window minute(s) at a time. An Azure Automation schedule cannot run more often than every $script:MinimumTriggerMinutes minutes, so the controller will usually wake after the window has closed and never start anything. Widen the window, or trigger the runbook by webhook.")
+                }
+            }
+
             $result = [ordered]@{
                 PSTypeName = $script:TypeName.Validation
                 Name       = if ($name) { $name } else { '(unnamed)' }
                 Valid      = [bool](-not $problem)
                 Problem    = $problem
+                Warnings   = $warnings.ToArray()
             }
             # @(...)[0] because a collection landing on this property becomes a nested array in
             # anything that stores the result, and the read side can only report a schedule with
