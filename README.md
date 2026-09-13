@@ -185,6 +185,7 @@ Pre-release `0.1.5-preview` on the Gallery. What is verified is in
 ## Documentation
 
 - Tool page: [simonvedder.com/tools/vm-power-management](https://simonvedder.com/tools/vm-power-management)
+- [Reference](docs/reference.md): the tags, the state, and what every value in a plan means
 - [Command reference](docs/commands) generated from the comment-based help
 - [Verification log](docs/verification.md), [known issues](KNOWN-ISSUES.md), [when not to use this](docs/when-not-to-use-this.md)
 - [Architecture decisions](docs/decisions), [releasing](docs/release.md), [contributing](CONTRIBUTING.md), [security](SECURITY.md), [changelog](CHANGELOG.md)
