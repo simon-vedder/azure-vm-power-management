@@ -35,6 +35,10 @@ $script:CatalogVariable = @{
 
 $script:AutomationApiVersion = '2024-10-23'
 
+# The floor Azure Automation puts under a schedule. A window narrower than this is one the deployed
+# controller can wake either side of without ever seeing it open - see ADR 0006.
+$script:MinimumTriggerMinutes = 60
+
 $script:MonthNames = @(
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'

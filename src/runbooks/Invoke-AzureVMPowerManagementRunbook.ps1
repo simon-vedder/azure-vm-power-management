@@ -468,6 +468,22 @@ if ($ScheduleCatalog) {
     }
     $catalog = @($checked.Schedule)
     Write-Output "Catalogue: $($catalog.Count) schedule(s) - $(($catalog.Name | Sort-Object) -join ', ')"
+
+    # A schedule can be well formed and still be one this controller never sees open. Said out loud
+    # on every run, because the symptom is silence: the machine is simply never started and every
+    # run reports MatchesSchedule.
+    #
+    # Guarded, because this file and the module are versioned separately - the runbook is pulled
+    # from a URL and the module from the Gallery, so a deployment can legitimately pair a newer
+    # wrapper with an older module. Reading a property that is not there yields $null, and @($null)
+    # is one element, so the unguarded version printed an empty warning for every schedule.
+    foreach ($entry in $checked) {
+        if (-not $entry.PSObject.Properties['Warnings']) { continue }
+        foreach ($warning in @($entry.Warnings)) {
+            if (-not $warning) { continue }
+            Write-Output "Catalogue warning - $($entry.Name): $warning"
+        }
+    }
 }
 else {
     Write-Output 'Catalogue: none. Only the stranded-machine rule applies.'

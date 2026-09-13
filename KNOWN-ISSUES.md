@@ -121,7 +121,25 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   assembly-loading trouble seen on another tool came from importing a newer `Az.Accounts` alongside
   the bundle, not from importing a module at all.
 
+- *(observed)* **A schedule narrower than the trigger interval is never acted on, and says nothing.**
+  The controller samples; it does not obey. An Azure Automation schedule cannot run more often than
+  hourly, so a window of thirty minutes is one the controller wakes either side of without ever
+  seeing it open. A soak deployment ran for two days, completed 43 jobs without a single failure,
+  and did nothing at all: every run reported `MatchesSchedule` because the window had closed before
+  it looked. `Test-VmPowerSchedule` now returns a warning for it and the runbook prints it on every
+  run - it is not a `Problem`, because the schedule is well formed and a webhook trigger would serve
+  it exactly as written. Measured 2026-09-13. Rule of thumb: a window has to be comfortably longer
+  than the trigger interval, not merely equal to it - the trigger fires at some minute past the
+  hour, and the window has to contain that minute.
+
 ## Sharp edges in the tooling itself
+
+- **The runbook and the module are versioned separately.** The runbook is pulled from a URL and the
+  module comes from the Gallery, so a deployment can legitimately pair a newer wrapper with an older
+  module. A property added to the module is therefore absent in the wrapper's hands until the module
+  is upgraded, and `@($null)` is one element rather than none - which printed an empty warning line
+  for every schedule against a real account on 2026-09-13. Anything the runbook reads off a module
+  object that is newer than the last release has to be guarded.
 
 - **`Get-AutomationVariable` returns a Newtonsoft `JObject`, and a `JObject` indexes
   case-sensitively.** It is not an `IDictionary`, it exposes no PowerShell properties, and

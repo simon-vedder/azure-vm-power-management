@@ -5,7 +5,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A warning for a schedule the controller would never see open.** The controller samples on a
+  timer that cannot run more often than hourly, so a window narrower than that is one it wakes
+  either side of. `Test-VmPowerSchedule` returns it in a new `Warnings` property and the runbook
+  prints it on every run. Not a `Problem`: the schedule is well formed, and a webhook trigger would
+  serve it exactly as written. A soak deployment completed 43 jobs over two days without a single
+  failure and did nothing at all, because its window was thirty minutes wide.
+
+### Fixed
+
+- The runbook reads that warning list defensively. It is pulled from a URL while the module comes
+  from the Gallery, so a deployment can pair a newer wrapper with an older module - and `@($null)`
+  is one element, which printed an empty warning for every schedule.
+
 ### Verified
+
+- **Two days of unattended hourly running**, across a weekend, with 43 jobs and no failures.
 
 - **One armed run, across two subscriptions.** The controller was deployed into a subscription with
   no virtual machines in it at all and acted on a machine in the other one - same resource group

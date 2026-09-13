@@ -488,6 +488,40 @@ Describe 'Invoke-VmPowerPlan' {
     }
 }
 
+Describe 'A window the controller would never see open' {
+    # A soak test ran for two days and did nothing at all: the window was 05:00-05:30 and the
+    # trigger fired at :53, so every run found it already closed. The schedule validated clean,
+    # deployed clean, and reported MatchesSchedule 43 times. Nothing anywhere said why.
+    It 'warns when the window is narrower than the shortest trigger Automation allows' {
+        $result = New-VmPowerSchedule -Name soak-window -TimeZone UTC -Daily '05:00-05:30' | Test-VmPowerSchedule
+        $result.Valid | Should -BeTrue -Because 'the schedule is well formed; it is the sampling that misses it'
+        $result.Problem | Should -BeNullOrEmpty
+        @($result.Warnings).Count | Should -Be 1
+        $result.Warnings[0] | Should -Match '30 minute'
+        $result.Warnings[0] | Should -Match 'never start anything'
+    }
+
+    It 'says nothing about a window an hourly controller can see' {
+        $result = New-VmPowerSchedule -Name office-hours-ch -TimeZone 'Europe/Zurich' -Weekdays '07:30-18:30' | Test-VmPowerSchedule
+        @($result.Warnings).Count | Should -Be 0
+    }
+
+    It 'says nothing about a schedule that only ever starts machines' {
+        # A window with no end is not a short one.
+        $result = New-VmPowerSchedule -Name always-up -TimeZone UTC -Daily '06:00-23:59' | Test-VmPowerSchedule
+        @($result.Warnings).Count | Should -Be 0
+    }
+
+    It 'measures the window across a weekday boundary rather than reading the action list' {
+        # Friday 23:00 to Monday 06:00 is a long window, not a one-hour one, and only occurrences
+        # laid end to end can tell the difference.
+        $schedule = New-VmPowerSchedule -Name weekend-up -TimeZone UTC `
+            -Days Friday, Monday -Start '23:00' -Stop '06:00'
+        $result = $schedule | Test-VmPowerSchedule
+        $result.Valid | Should -BeTrue
+    }
+}
+
 Describe 'The schedule dwell reaching the machine' {
     # Three hops, and it was broken at every one of them: New-VmPowerSchedule wrote
     # minimumDwellMinutes, Expand-VmPowerSchedule validated it, and nothing downstream ever looked.
@@ -1155,6 +1189,15 @@ Describe 'The runbook and the deployment' {
         # The other direction, which is how a setting becomes a knob that does nothing.
         $unread = @($createdByDeployment | Where-Object { $_ -notin $readByRunbook })
         $unread | Should -BeNullOrEmpty
+    }
+
+    It 'reads the warning list defensively, because the module can be a version behind' {
+        # The runbook comes from a raw URL and the module from the Gallery, so a deployment can
+        # pair a newer wrapper with an older module. Reading a property that is not there gives
+        # $null, and @($null) is one element - which printed an empty warning for every schedule
+        # against a real account on 2026-09-13.
+        $runbookText | Should -Match "PSObject\.Properties\['Warnings'\]"
+        $runbookText | Should -Match 'if \(-not \$warning\) \{ continue \}'
     }
 
     It 'hands the dwell guard the memory it needs' {
