@@ -44,6 +44,12 @@ function New-VmPowerSchedule {
     Leave a machine alone for this long after acting on it. Azure bills a five-minute minimum per
     start, so a schedule that flaps costs money as well as being wrong.
 
+    .PARAMETER StartGraceMinutes
+    How long after a scheduled start a machine that is still down is started. Inside it, a machine
+    that is down is a start that did not take; outside it, somebody turned it off and the tool
+    leaves it alone. Keep it at or above 60: the deployed controller wakes hourly, so a shorter
+    grace is caught or missed by the trigger's offset alone. See docs/decisions/0007.
+
     .PARAMETER DisplayName
     Human label for the workbook. Defaults to the name.
 
@@ -113,6 +119,10 @@ function New-VmPowerSchedule {
         [int]$MinimumDwellMinutes = 30,
 
         [Parameter()]
+        [ValidateRange(0, 1440)]
+        [int]$StartGraceMinutes = 120,
+
+        [Parameter()]
         [string]$DisplayName
     )
 
@@ -121,6 +131,7 @@ function New-VmPowerSchedule {
         timeZone            = $TimeZone
         exceptDates         = @($ExceptDate)
         minimumDwellMinutes = $MinimumDwellMinutes
+        startGraceMinutes   = $StartGraceMinutes
     }
     if ($DisplayName) { $raw['displayName'] = $DisplayName }
 

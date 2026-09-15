@@ -47,7 +47,7 @@ param armed bool = false
 @maxValue(10000)
 param maximumActions int
 
-@description('Leave a machine alone this long after acting on it. Azure bills a five-minute minimum per start, so a schedule that flaps costs money as well as being wrong.')
+@description('Leave a machine alone this long after acting on it. Azure bills a five-minute minimum per start, so a schedule that flaps costs money as well as being wrong. Avoid an exact multiple of the trigger interval: consecutive hourly runs land a few seconds under an hour apart, so a dwell of 60 blocks the next run about half the time. See KNOWN-ISSUES.')
 @minValue(0)
 @maxValue(1440)
 param minimumDwellMinutes int = 30

@@ -3,6 +3,35 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+Two full days on its own schedule, and the other geometry problem.
+
+### Added
+
+- **A warning for a start grace the controller would never land in.** A machine that is down is
+  only started inside `startGraceMinutes` of its scheduled start, and an hourly controller can wake
+  up to an hour after it. A grace under 60 is therefore caught or missed by the minute the trigger
+  happens to fire, and a missed one reads `DownSinceTheStartWindow` every day without starting
+  anything. `Test-VmPowerSchedule` warns for it alongside the window warning.
+- `New-VmPowerSchedule -StartGraceMinutes`, so the knob ADR 0007 introduced can be set without hand
+  editing JSON. Defaults to 120, as before.
+
+### Changed
+
+- The `ShouldBeRunning` explanation no longer claims a start "did not take". The first wake after
+  a window opens is the common case for a sampling controller, and nothing had been tried before
+  it. It now says what is known: wanted up for how long, deallocated, inside which grace.
+
+### Verified
+
+- **Two full days on its own schedule.** The soak deployment started `soak-office` at 05:53 and
+  deallocated it at 06:53 on both days, left `soak-excluded` alone on every run, and remembered and
+  forgot its dwell entries as designed. 51 jobs since the window was widened, all Completed.
+- A dwell that is an exact multiple of the trigger interval is decided by trigger jitter -
+  consecutive runs landed 59 minutes 52 seconds apart. Recorded in KNOWN-ISSUES and on the
+  deployment parameter rather than changed.
+
 ## [0.1.5-preview] - 2026-09-13
 
 Two days of unattended running, and the schedule the controller could never see.
@@ -212,7 +241,10 @@ until this has run a full loop inside a real Automation Account.
   as available there but was not exercised, and every setting the deployment writes is read through
   it. See [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
-[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.5...HEAD
+[0.1.5-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.5
+[0.1.4-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.4
+[0.1.3-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.3
 [0.1.2-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.2
 [0.1.1-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.1
 [0.1.0-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.0

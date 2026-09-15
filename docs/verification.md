@@ -240,9 +240,43 @@ the shortest trigger Automation allows, and the runbook prints the warning on ev
 The window is now 05:00-06:30, which contains the :53 the trigger actually fires at, and the
 controller will start and deallocate once a day from here.
 
+## 2026-09-15 — two full days on its own schedule
+
+The same deployment, two days after the window was widened to 05:00-06:30 UTC. Nothing was touched
+in between.
+
+| Run (UTC) | `soak-office` | `soak-excluded` |
+|---|---|---|
+| 14.09. 05:54 | **Start** — Done | Excluded |
+| 14.09. 06:53 | **Deallocate** — Done | Excluded |
+| 15.09. 05:53 | **Start** — Done | Excluded |
+| 15.09. 06:53 | **Deallocate** — Done | Excluded |
+
+Since the window was widened, 51 jobs: every one Completed, these four acted, the other 47 planned
+two machines and acted on none. The dwell store held one entry after each action, was consulted at
+the next run (`1 machine(s) remembered`), and was pruned back to `{}` once the longest dwell had
+passed. Both machines are deallocated at the time of writing.
+
+Two things in those four job outputs were wrong anyway, neither of them an action:
+
+1. **The start was explained as a retry that never happened.** The 05:53 run read *started
+   machines 53 minute(s) ago and this one is deallocated, so the start did not take*. Nothing had
+   been tried; the controller had simply woken for the first time since the window opened, which
+   is the common case for a sampling controller, not the exception. The reason now states what is
+   known - wanted up for 53 minutes, deallocated, inside the 120 minute grace - and invents nothing.
+2. **The start grace has the same geometry problem the window had.** Those starts were caught 53
+   and 54 minutes after the scheduled time, inside the default `startGraceMinutes` of 120. The
+   grace is per schedule and accepts anything from 0 to 1440; one below 60 is caught or missed by
+   the minute the hourly trigger happens to fire, and a missed one reads `DownSinceTheStartWindow`
+   every day, forever, having started nothing. `Test-VmPowerSchedule` now warns for it, alongside
+   the window warning, and `New-VmPowerSchedule` exposes the knob so it can be set without hand
+   editing JSON.
+
+A third observation is recorded rather than fixed: consecutive runs were 59 minutes 52 seconds
+apart. A dwell that is an exact multiple of the trigger interval is therefore decided by trigger
+jitter — see [KNOWN-ISSUES](../KNOWN-ISSUES.md).
+
 ## What is still unproved
 
 - No estate large enough to page Resource Graph has been seen.
-- Nothing has yet started and stopped a machine on its own schedule over several days. Two days of
-  unattended running are behind it, but the window they used was one the controller could not see.
 - Nothing has run through a daylight saving change. The next is 25 October.

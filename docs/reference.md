@@ -66,7 +66,7 @@ One per branch of the decision, returned with `Explanation`, the same reason as 
 | `Excluded` | the machine carries the exclusion tag |
 | `MatchesSchedule` | already in the state its schedule wants at this time |
 | `ShouldBeStopped` | its schedule has it down at this time and it is running |
-| `ShouldBeRunning` | its schedule started machines minutes ago and this one is still deallocated, so the start did not take |
+| `ShouldBeRunning` | its schedule has wanted it up for a while and it is still deallocated, inside the schedule's start grace |
 | `DownSinceTheStartWindow` | its schedule wants it up, but the start was long enough ago that somebody turned this machine off on purpose. See [ADR 0007](decisions/0007-start-only-while-the-start-is-recent.md) |
 | `ScheduleStateUnknown` | the schedule has no action in the lookback window, so there is nothing to compare against |
 | `ScheduleNotInCatalogue` | the tag names a schedule that does not exist |

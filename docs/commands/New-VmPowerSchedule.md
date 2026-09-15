@@ -13,11 +13,11 @@ to Show-VmPowerScheduleCalendar to see what it will actually do before anything 
 ## Syntax
 
 ```powershell
-New-VmPowerSchedule [-Name] <string> -TimeZone <string> -Weekdays <string> [-ExceptDate <string[]>] [-MinimumDwellMinutes <int>] [-DisplayName <string>] [<CommonParameters>]
+New-VmPowerSchedule [-Name] <string> -TimeZone <string> -Weekdays <string> [-ExceptDate <string[]>] [-MinimumDwellMinutes <int>] [-StartGraceMinutes <int>] [-DisplayName <string>] [<CommonParameters>]
 
-New-VmPowerSchedule [-Name] <string> -TimeZone <string> -Daily <string> [-ExceptDate <string[]>] [-MinimumDwellMinutes <int>] [-DisplayName <string>] [<CommonParameters>]
+New-VmPowerSchedule [-Name] <string> -TimeZone <string> -Daily <string> [-ExceptDate <string[]>] [-MinimumDwellMinutes <int>] [-StartGraceMinutes <int>] [-DisplayName <string>] [<CommonParameters>]
 
-New-VmPowerSchedule [-Name] <string> -TimeZone <string> -Start <string> [-Days <string[]>] [-Stop <string>] [-ExceptDate <string[]>] [-MinimumDwellMinutes <int>] [-DisplayName <string>] [<CommonParameters>]
+New-VmPowerSchedule [-Name] <string> -TimeZone <string> -Start <string> [-Days <string[]>] [-Stop <string>] [-ExceptDate <string[]>] [-MinimumDwellMinutes <int>] [-StartGraceMinutes <int>] [-DisplayName <string>] [<CommonParameters>]
 ```
 
 ## Requirements and notes
@@ -41,6 +41,7 @@ Writes: Nothing. Storing the result is Set-VmPowerSchedule's job.
 | `-Stop` | String | no | no |  | Time to deallocate them. Omit for a schedule that starts machines and never stops them. |
 | `-ExceptDate` | String[] | no | no |  | Dates to skip, as yyyy-MM-dd. No holiday calendar ships with this tool: Switzerland alone has cantonal holidays, and a calendar that looks authoritative and is wrong is worse than none. |
 | `-MinimumDwellMinutes` | Int32 | no | no | 30 | Leave a machine alone for this long after acting on it. Azure bills a five-minute minimum per start, so a schedule that flaps costs money as well as being wrong. |
+| `-StartGraceMinutes` | Int32 | no | no | 120 | How long after a scheduled start a machine that is still down is started. Inside it, a machine that is down is a start that did not take; outside it, somebody turned it off and the tool leaves it alone. Keep it at or above 60: the deployed controller wakes hourly, so a shorter grace is caught or missed by the trigger's offset alone. See docs/decisions/0007. |
 | `-DisplayName` | String | no | no |  | Human label for the workbook. Defaults to the name. |
 
 ## Examples

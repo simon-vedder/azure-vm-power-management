@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "11277312063283512577"
+      "templateHash": "8872506981951240535"
     }
   },
   "parameters": {
@@ -97,7 +97,7 @@
       "minValue": 0,
       "maxValue": 1440,
       "metadata": {
-        "description": "Leave a machine alone this long after acting on it. Azure bills a five-minute minimum per start, so a schedule that flaps costs money as well as being wrong."
+        "description": "Leave a machine alone this long after acting on it. Azure bills a five-minute minimum per start, so a schedule that flaps costs money as well as being wrong. Avoid an exact multiple of the trigger interval: consecutive hourly runs land a few seconds under an hour apart, so a dwell of 60 blocks the next run about half the time. See KNOWN-ISSUES."
       }
     },
     "includeUntagged": {
