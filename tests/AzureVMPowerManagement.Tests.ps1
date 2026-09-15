@@ -522,6 +522,35 @@ Describe 'A window the controller would never see open' {
     }
 }
 
+Describe 'A start grace the controller would never land in' {
+    # The same geometry on the other knob. The soak test's starts were caught 53 and 54 minutes
+    # after the scheduled time, inside the default grace of 120 - but the grace is per schedule,
+    # and one shorter than the trigger interval is caught or missed by the trigger's offset alone.
+    # A missed one reads DownSinceTheStartWindow every day and never starts anything. 2026-09-15.
+    It 'warns when the grace is shorter than the shortest trigger Automation allows' {
+        $result = New-VmPowerSchedule -Name quick-retry -TimeZone UTC -Daily '07:00-18:00' -StartGraceMinutes 30 | Test-VmPowerSchedule
+        $result.Valid | Should -BeTrue -Because 'the schedule is well formed; it is the sampling that misses it'
+        @($result.Warnings).Count | Should -Be 1
+        $result.Warnings[0] | Should -Match 'only 30 minute'
+        $result.Warnings[0] | Should -Match 'trigger happens to fire'
+    }
+
+    It 'says nothing at exactly the trigger interval' {
+        $result = New-VmPowerSchedule -Name hour-retry -TimeZone UTC -Daily '07:00-18:00' -StartGraceMinutes 60 | Test-VmPowerSchedule
+        @($result.Warnings).Count | Should -Be 0
+    }
+
+    It 'reports both geometry problems on one schedule' {
+        $result = New-VmPowerSchedule -Name twice-wrong -TimeZone UTC -Daily '07:00-07:30' -StartGraceMinutes 10 | Test-VmPowerSchedule
+        @($result.Warnings).Count | Should -Be 2
+    }
+
+    It 'lets New-VmPowerSchedule set the grace, and defaults it to 120' {
+        (New-VmPowerSchedule -Name lab-patient -TimeZone UTC -Daily '08:00-20:00' -StartGraceMinutes 90).StartGraceMinutes | Should -Be 90
+        (New-VmPowerSchedule -Name lab-default -TimeZone UTC -Daily '08:00-20:00').StartGraceMinutes | Should -Be 120
+    }
+}
+
 Describe 'The schedule dwell reaching the machine' {
     # Three hops, and it was broken at every one of them: New-VmPowerSchedule wrote
     # minimumDwellMinutes, Expand-VmPowerSchedule validated it, and nothing downstream ever looked.
@@ -797,10 +826,22 @@ Describe 'The schedule rule' {
             $decision.Reason | Should -Be 'DownSinceTheStartWindow'
         }
 
-        It 'still retries a start that did not take, inside the grace' {
+        It 'still starts a machine that is down inside the grace' {
             $machine = New-Machine @{ powerState = 'PowerState/deallocated' }
             $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up -MinutesSince 119 -Grace 120) }
             $decision.Action | Should -Be 'Start'
+        }
+
+        It 'explains that start without inventing an earlier attempt' {
+            # The soak test's first wake after its window opened, 53 minutes in, read "started
+            # machines 53 minute(s) ago ... so the start did not take" - and nothing had been tried.
+            # A sampling controller's first look is the common case, not a retry. Seen 2026-09-14.
+            $machine = New-Machine @{ powerState = 'PowerState/deallocated' }
+            $decision = & $Private.Resolve -Machine $machine -ScheduleState @{ 'office-hours-ch' = (New-State -State Up -MinutesSince 53 -Grace 120) }
+            $decision.Reason | Should -Be 'ShouldBeRunning'
+            $decision.Explanation | Should -Not -Match 'did not take'
+            $decision.Explanation | Should -Match '53 minute'
+            $decision.Explanation | Should -Match '120 minute start grace'
         }
 
         It 'stops a running machine outside its hours however long that has been true' {

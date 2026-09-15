@@ -8,8 +8,9 @@ one. Set-VmPowerSchedule calls it and refuses to store anything that does not pa
 
 Valid and useful are different questions. A schedule can be well formed and still be one the
 deployed controller never sees open, because it is sampled on a timer that cannot run more often
-than hourly. That comes back in Warnings rather than Problem: nothing is wrong with the schedule,
-but left alone it would do nothing and say nothing about it.
+than hourly: a window narrower than that, or a startGraceMinutes shorter than that. Both come
+back in Warnings rather than Problem: nothing is wrong with the schedule, but left alone it
+would do nothing and say nothing about it.
 
 It also checks the things a schema cannot: two schedules with the same name, and a catalogue
 whose names would not survive being turned into the allowedValues of a policy.

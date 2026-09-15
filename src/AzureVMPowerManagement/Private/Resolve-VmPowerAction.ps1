@@ -113,7 +113,7 @@ function Resolve-VmPowerAction {
             $grace = [int]$desired.StartGraceMinutes
             switch ($true) {
                 ($wanted -eq 'Up' -and $powerState -eq $script:PowerState.Deallocated -and $sinceMinutes -le $grace) {
-                    'Start', 'ShouldBeRunning', "Schedule '$schedule' started machines $sinceMinutes minute(s) ago and this one is deallocated, so the start did not take."
+                    'Start', 'ShouldBeRunning', "Schedule '$schedule' has wanted it up for $sinceMinutes minute(s) and it is deallocated, inside the $grace minute start grace."
                     break
                 }
                 ($wanted -eq 'Up' -and $powerState -eq $script:PowerState.Deallocated) {

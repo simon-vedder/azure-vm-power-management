@@ -10,8 +10,9 @@ function Test-VmPowerSchedule {
 
     Valid and useful are different questions. A schedule can be well formed and still be one the
     deployed controller never sees open, because it is sampled on a timer that cannot run more often
-    than hourly. That comes back in Warnings rather than Problem: nothing is wrong with the schedule,
-    but left alone it would do nothing and say nothing about it.
+    than hourly: a window narrower than that, or a startGraceMinutes shorter than that. Both come
+    back in Warnings rather than Problem: nothing is wrong with the schedule, but left alone it
+    would do nothing and say nothing about it.
 
     It also checks the things a schema cannot: two schedules with the same name, and a catalogue
     whose names would not survive being turned into the allowedValues of a policy.
@@ -98,6 +99,14 @@ function Test-VmPowerSchedule {
                 $window = Get-VmPowerScheduleUpWindow -Schedule @($expanded)[0]
                 if ($null -ne $window -and $window -lt $script:MinimumTriggerMinutes) {
                     $warnings.Add("Wants machines up for only $window minute(s) at a time. An Azure Automation schedule cannot run more often than every $script:MinimumTriggerMinutes minutes, so the controller will usually wake after the window has closed and never start anything. Widen the window, or trigger the runbook by webhook.")
+                }
+                # Same geometry, other knob. A start is only retried inside startGraceMinutes of the
+                # scheduled start (docs/decisions/0007), and an hourly controller can wake up to an
+                # hour after it. A grace shorter than that is caught or missed by the trigger's
+                # offset alone - and a missed one reads DownSinceTheStartWindow every day, forever.
+                $grace = [int]@($expanded)[0].StartGraceMinutes
+                if ($grace -lt $script:MinimumTriggerMinutes) {
+                    $warnings.Add("Retries a start for only $grace minute(s) after the scheduled time. An hourly controller can wake up to $script:MinimumTriggerMinutes minutes after a start, so whether it ever starts anything depends on the minute the trigger happens to fire. Leave startGraceMinutes at its default of 120, or set it to at least $script:MinimumTriggerMinutes.")
                 }
             }
 

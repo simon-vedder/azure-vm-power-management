@@ -132,6 +132,24 @@ Every entry says where it comes from: *(observed)* in this project's lab or a re
   than the trigger interval, not merely equal to it - the trigger fires at some minute past the
   hour, and the window has to contain that minute.
 
+- *(observed)* **A start grace shorter than the trigger interval is the same defect on the other
+  knob.** A machine that is down is only started inside `startGraceMinutes` of its scheduled start
+  ([ADR 0007](docs/decisions/0007-start-only-while-the-start-is-recent.md)), and an hourly
+  controller can wake up to an hour after that start. The soak deployment's starts were caught 53
+  and 54 minutes in, inside the default of 120. Set the grace to 30 and whether a schedule ever
+  starts anything depends on the minute the trigger happens to fire; when it misses, every run says
+  `DownSinceTheStartWindow` and the machine stays down. `Test-VmPowerSchedule` warns for a grace
+  under 60 since 2026-09-15. Leave it at 120 unless you know why.
+
+- *(observed)* **A dwell that is an exact multiple of the trigger interval is decided by jitter.**
+  Consecutive hourly runs of the soak deployment started 59 minutes 52 seconds apart; the trigger
+  drifts by about half a minute either way. A dwell of 60 minutes therefore blocks the very next
+  run about half the time (`Acted on 59 minute(s) ago, inside the 60 minute dwell`) and lets it
+  through the other half, which looks like the tool changing its mind. Any dwell under the interval
+  behaves the same as any other, since nothing can happen between runs anyway; 90 reliably skips one
+  run. Pick a dwell that is not 60, 120 or 180 unless an occasional extra hour is acceptable.
+  Measured 2026-09-15.
+
 ## Sharp edges in the tooling itself
 
 - **The runbook and the module are versioned separately.** The runbook is pulled from a URL and the
