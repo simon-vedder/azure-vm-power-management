@@ -279,4 +279,10 @@ jitter — see [KNOWN-ISSUES](../KNOWN-ISSUES.md).
 ## What is still unproved
 
 - No estate large enough to page Resource Graph has been seen.
-- Nothing has run through a daylight saving change. The next is 25 October.
+- Nothing has run through a daylight saving change. The next is Sunday 25 October, and the soak
+  deployment stays up for it - on a schedule that can see it. Its first window was in UTC, which
+  has no change to show; since 2026-09-15 `soak-office` runs `soak-window-ch`, 07:00-08:30 in
+  `W. Europe Standard Time`. That is 05:00-06:30 UTC today and 06:00-07:30 UTC from the 25th, so
+  the start job has to move from 05:53 to 06:53 and the deallocate from 06:53 to 07:53 in the job
+  history, on the day, without anyone touching anything. `Show-VmPowerScheduleCalendar` already
+  predicts exactly that; the job history is the proof.
