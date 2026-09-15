@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.1.6-preview] - 2026-09-15
 
 Two full days on its own schedule, and the other geometry problem.
 
@@ -241,7 +241,8 @@ until this has run a full loop inside a real Automation Account.
   as available there but was not exercised, and every setting the deployment writes is read through
   it. See [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
 
-[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/simon-vedder/azure-vm-power-management/compare/v0.1.6...HEAD
+[0.1.6-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.6
 [0.1.5-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.5
 [0.1.4-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.4
 [0.1.3-preview]: https://github.com/simon-vedder/azure-vm-power-management/releases/tag/v0.1.3
